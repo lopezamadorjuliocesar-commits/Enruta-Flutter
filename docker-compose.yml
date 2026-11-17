@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: enruta, POSTGRES_PASSWORD: enruta, POSTGRES_DB: enruta }
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U enruta"], interval: 3s, retries: 20 }
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redisdata:/data]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 3s, retries: 20 }
+  api:
+    build: ./backend
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      DATABASE_URL: postgres://enruta:enruta@db:5432/enruta
+      REDIS_URL: redis://redis:6379
+      ADMIN_API_KEY: dev-admin-key
+      JWT_SECRET: cambia-este-secreto-largo-y-aleatorio
+    ports: ["3000:3000"]
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+volumes:
+  pgdata: {}
+  redisdata: {}
