@@ -108,7 +108,7 @@ function createExecutionService({ store, clock, bus, files, config, queue }) {
           if (!outsideReason || outsideReason.length < 3) throw new HttpError(422, 'OUTSIDE_RADIUS', `Estás a ${Math.round(distance)} m del cliente (radio permitido: ${radius} m). Indica el motivo para registrar la llegada.`, { distanceM: Math.round(distance), radiusM: radius });
         }
         const form = await formFor(r, ctx, 'visita', b.formVersion, eff); checkForm(form.fields, b.form);
-        const visit = await r.visits.create({ id: uuid(), companyId: ctx.companyId, centerId: route.center_id, routeId, clientId, seq: stop.seq, arrivedAt: now(), lat, lng, distanceM: distance, outsideReason, createdBy: ctx.userId, formVersion: form.version, formData: b.form ? JSON.stringify(b.form) : null });
+        const visit = await r.visits.create({ id: uuid(), companyId: ctx.companyId, centerId: route.center_id, routeId, clientId, seq: stop.seq, arrivedAt: now(), lat, lng, distanceM: distance, outsideReason, createdBy: ctx.userId, createdAt: now(), formVersion: form.version, formData: b.form ? JSON.stringify(b.form) : null });
         await audit(r, ctx, 'visit.arrived', { entity: 'visit', entityId: visit.id, centerId: route.center_id, detail: { clientId, distanceM: distance === null ? null : Math.round(distance), outside: !!outsideReason } });
         return { visit: visitDto(visit), created: true, route };
       });
@@ -280,7 +280,7 @@ function createExecutionService({ store, clock, bus, files, config, queue }) {
         if (v && v.status === 'SKIPPED') return { route, visit: visitDto(v) };
         if (v && (v.status === 'CLOSED' || (await r.deliveries.byVisit(v.id)))) throw conflict('La parada ya tiene una visita registrada.', 'VISIT_CLOSED');
         let visit; if (v) { await r.visits.update(v.id, { status: 'SKIPPED', skip_reason: reason, closed_at: now() }); visit = { ...v, status: 'SKIPPED', skip_reason: reason, closed_at: now() }; }
-        else visit = await r.visits.create({ id: uuid(), companyId: ctx.companyId, centerId: route.center_id, routeId, clientId, seq: stop.seq, status: 'SKIPPED', skipReason: reason, closedAt: now(), createdBy: ctx.userId });
+        else visit = await r.visits.create({ id: uuid(), companyId: ctx.companyId, centerId: route.center_id, routeId, clientId, seq: stop.seq, status: 'SKIPPED', skipReason: reason, closedAt: now(), createdBy: ctx.userId, createdAt: now() });
         await audit(r, ctx, 'visit.skipped', { entity: 'visit', entityId: visit.id, centerId: route.center_id, detail: { clientId, reason } });
         return { route, visit: visitDto(visit) };
       });

@@ -9,7 +9,8 @@
     "migrate": "node scripts/migrate.js",
     "seed:reset": "node scripts/seed-reset.js --yes",
     "test": "node --test --test-concurrency=1 test/*.test.js",
-    "example:idoo": "node examples/idoo-example.js"
+    "example:idoo": "node examples/idoo-example.js",
+    "test:scenarios": "node --test --test-timeout=60000 test/scenarios.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
