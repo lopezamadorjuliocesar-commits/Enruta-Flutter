@@ -488,3 +488,14 @@ Puntos a corregir explícitamente: login/logout, validación RFC, CRUD, mapa, te
 3. Existencias por zona/ubicación dentro del centro y lotes/caducidades no se modelan.
 4. Los indicadores usan UTC para el periodo; las vigencias de precios usan la zona de la empresa.
 5. El estado de integraciones vive en memoria (se rehace con el uso tras un reinicio).
+
+---
+
+## 10. Decisiones de la Fase 4 (regresión y entrega)
+
+| Ref. | Decisión | Motivo |
+|---|---|---|
+| DT-56 | Los 20 escenarios se verifican con **una suite consolidada** (`backend/test/scenarios.test.js`: un recorrido en una BD SQLite temporal EN ARCHIVO, con reinicio real del backend en el escenario 16) en lugar de 20 archivos sueltos como proponía el plan; las suites por tema se conservan como pruebas de apoyo. La parte visual del escenario 20 vive en Karma (`reactivity.spec.ts`) y en los humos E2E. | Un recorrido encadenado detecta fallos de integración entre módulos que las pruebas aisladas no ven. |
+| DT-57 | `npm run verify:phase4` ejecuta compilación del backend (sintaxis + arranque), `ng build` de producción **fallando ante advertencias**, la suite del backend, los 20 escenarios y Karma, y sale con código 1 si algo falla. Los E2E quedan aparte (necesitan el stack levantado). | Un solo comando reproduce el informe de ESTADO_IMPLEMENTACION. |
+| DT-58 | `.env.example` se valida con una prueba: toda variable que lee el código debe estar documentada, ninguna puede llevar secreto y el archivo, tal cual, debe producir una configuración válida (modos locales). | La documentación de configuración no puede desfasarse en silencio. |
+| DT-59 | Las filas creadas por los servicios usan el **reloj inyectado** (`createdAt`), no el del sistema, también en `visits` (hallazgo de la Fase 4). | Coherencia de periodos en indicadores y pruebas con reloj controlado. |

@@ -88,7 +88,9 @@ Una empresa registrada con validación simulada queda con `fiscal_status=SIMULAT
 ## 8. Pruebas
 
 ```bash
-npm run test:backend                         # 165 pruebas node:test
+npm run test:backend                         # 189 pruebas node:test (BD SQLite temporal)
+npm run test:scenarios                       # los 20 escenarios críticos como un solo recorrido (BD en archivo, con reinicio del backend)
+npm run verify:phase4                        # build + backend + 20 escenarios + Karma, con informe (código 1 si algo falla)
 npm test                                     # Karma (CHROME_BIN=/ruta/a/chrome si no está en el PATH)
 npm run seed:reset && npm run start:backend  # y en otra terminal: npm start
 npm run e2e:phase1                           # humo E2E (Fase 1, 12 pasos) con Playwright
@@ -96,6 +98,17 @@ npm run e2e:phase2                           # humo E2E (Fase 2, 15 pasos: rutas
 npm run e2e:phase3b                          # humo E2E (Fase 3 · puntos 11–13, 14 pasos: precios, inventario, módulos, liquidación, indicadores)
 npm run e2e:phase3                           # humo E2E (Fase 3 · puntos 8–10, 17 pasos: formularios, publicación, entrega, cobro, GPS, simulador)
 ```
+
+### Resultados verificados (Fase 4)
+| Comprobación | Resultado |
+|---|---|
+| `ng build` producción | sin errores ni advertencias (bundle inicial 976 kB) |
+| Backend (`test:backend`) | 189 de 189 |
+| Escenarios críticos (`test:scenarios`) | 20 de 20 |
+| Karma (`npm test`) | 42 correctas, 1 omitida |
+| E2E fases 1 / 2 / 3 / 3b | 12/12 · 15/15 · 17/17 · 14/14 |
+
+Los E2E necesitan el stack levantado (`seed:reset`, `npm run start:backend`, `npm start`) y Playwright con un Chromium (`CHROME_BIN` si no está en el PATH). El detalle por escenario está en `ESTADO_IMPLEMENTACION.md` §2. `.env.example` se valida automáticamente (`backend/test/env-example.test.js`): toda variable nueva del backend debe documentarse ahí.
 
 ## 9. Contrato REST para el móvil (Flutter)
 

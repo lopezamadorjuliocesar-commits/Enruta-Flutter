@@ -159,7 +159,9 @@ npx playwright test --reporter=line --trace off
 
 ---
 
-## Fase 4 — Regresión y entrega
+## Fase 4 — Regresión y entrega — ☑ completada
+
+Ejecutada: los 20 escenarios se verifican con `backend/test/scenarios.test.js` (un recorrido sobre SQLite temporal en archivo, con reinicio real), apoyados por las suites por tema, Karma (`reactivity.spec.ts` para el 20) y los humos E2E; `npm run verify:phase4` los agrupa. Los archivos por escenario de la tabla siguiente se sustituyeron por esa suite consolidada más las pruebas existentes (ver ESTADO_IMPLEMENTACION §2).
 
 | # | Escenario | Tipo de prueba | Archivo previsto |
 |---|---|---|---|
@@ -185,10 +187,10 @@ npx playwright test --reporter=line --trace off
 | 20 | Actualización reactiva sin recargas | E2E | `e2e/20-reactividad.spec.ts` |
 
 Entregables de Fase 4:
-- ☐ `.env.example` (raíz) — sin secretos.
-- ☐ `README_LOCAL.md` — instalación, `npm run seed:reset -- --yes`, arranque en dos terminales, `PUBLIC_WEB_URL` y firewall para QR, contrato `/api/mobile/v1` para Flutter.
-- ☐ `DECISIONES_TECNICAS.md` — actualizado con cualquier decisión nueva.
-- ☐ `ESTADO_IMPLEMENTACION.md` — resultado real de las 20 pruebas (pasa/falla con salida), funciones terminadas, **simulaciones** (RFC local, PAC local, correo local, simulador GPS, hardware reportado por navegador) y pendientes.
+- ☑ `.env.example` (raíz) — sin secretos; validado por `env-example.test.js`.
+- ☑ `README_LOCAL.md` — instalación, `npm run seed:reset -- --yes`, arranque en dos terminales, `PUBLIC_WEB_URL` y firewall para QR, contrato `/api/mobile/v1` para Flutter.
+- ☑ `DECISIONES_TECNICAS.md` — actualizado con cualquier decisión nueva.
+- ☑ `ESTADO_IMPLEMENTACION.md` — resultado real de las 20 pruebas (pasa/falla con salida), funciones terminadas, **simulaciones** (RFC local, PAC local, correo local, simulador GPS, hardware reportado por navegador) y pendientes.
 
 ---
 
