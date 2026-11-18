@@ -47,7 +47,7 @@ export class PricesScreenComponent implements OnInit {
     await this.guard(async () => { const d = await this.api.priceList(l.id);
       this.listForm.set({ id: d.id, name: d.name, description: d.description ?? '', isDefault: d.isDefault, priority: d.priority, validFrom: d.validFrom ?? '', validTo: d.validTo ?? '', status: d.status, prices: (d.prices ?? []).map((p) => ({ productId: p.productId, name: p.productName, price: String(p.price) })), clientIds: (d.clientList ?? []).map((c) => c.id) }); });
   }
-  addPrice(): void { const f = this.listForm(); const id = this.pickProduct(); if (!f || !id || !this.pickPrice().trim()) return; if (f.prices.some((p) => p.productId === id)) { this.error.set('Ese producto ya está en la lista.'); return; }
+  addPrice(): void { const f = this.listForm(); const id = this.pickProduct(); if (!f || !id || String(this.pickPrice()).trim() === '') return; if (f.prices.some((p) => p.productId === id)) { this.error.set('Ese producto ya está en la lista.'); return; }
     this.listForm.set({ ...f, prices: [...f.prices, { productId: id, name: this.productName(id), price: this.pickPrice() }] }); this.pickProduct.set(''); this.pickPrice.set(''); this.error.set(''); }
   removePrice(id: string): void { const f = this.listForm(); if (f) this.listForm.set({ ...f, prices: f.prices.filter((p) => p.productId !== id) }); }
   toggleClient(id: string, on: boolean): void { const f = this.listForm(); if (f) this.listForm.set({ ...f, clientIds: on ? [...f.clientIds, id] : f.clientIds.filter((c) => c !== id) }); }
