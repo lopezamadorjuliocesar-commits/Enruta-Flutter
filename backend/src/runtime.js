@@ -14,6 +14,9 @@ const { createFiscalService } = require('./services/fiscal.service');
 const { createFleetService } = require('./services/fleet.service');
 const { createRoutesService } = require('./services/routes.service');
 const { EventBus } = require('./realtime/bus');
+const { createConfigService } = require('./services/config.service');
+const { createExecutionService } = require('./services/execution.service');
+const { createTrackingService } = require('./services/tracking.service');
 const { CATALOG } = require('./services/permissions');
 const http = require('./middleware/http');
 const createRoutes = require('./routes');
@@ -37,7 +40,11 @@ async function createRuntime(config, { clock = () => Date.now(), logger = consol
   const catalog = createCatalogService({ store, clock });
   const fiscal = createFiscalService({ store, queue, clock });
   const fleet = createFleetService({ config, store, clock, bus });
-  const routes = createRoutesService({ store, clock, bus });
+  const configSvc = createConfigService({ store, clock, bus });
+  const execution = createExecutionService({ store, clock, bus, files, config: configSvc });
+  const routes = createRoutesService({ store, clock, bus, config: configSvc, execution });
+  const tracking = createTrackingService({ store, clock, bus, config });
+  await tracking.resetSimulations();
   queue.register('SEND_MAIL', async (payload) => { await adapters.mail.send(payload); return { scrubPayload: true }; });
   queue.register('CARTA_PORTE_STAMP', (payload, job) => fiscal.stampJob(payload, job));
 
@@ -48,11 +55,11 @@ async function createRuntime(config, { clock = () => Date.now(), logger = consol
   app.use('/api', (req, res, next) => { res.set('X-Content-Type-Options', 'nosniff'); next(); });
   app.use(express.json({ limit: '2mb' }));
   app.use('/api', http.csrfGuard);
-  const services = { auth, admin, catalog, fiscal, fleet, routes };
-  app.use('/api', createRoutes({ config, store, queue, services, adapters, files, clock, bus }));
+  const services = { auth, admin, catalog, fiscal, fleet, routes, config: configSvc, execution, tracking };
+  app.use('/api', createRoutes({ config, store, queue, services, adapters, files, clock, bus, idempotency: require('./middleware/idempotency')({ store, clock }) }));
   app.use(http.errorHandler(logger));
 
   return { app, config, store, queue, services, adapters, files, clock, bus,
-    async close() { bus.closeAll(); await queue.stop(); store.close(); } };
+    async close() { tracking.stopAll(); bus.closeAll(); await queue.stop(); store.close(); } };
 }
 module.exports = { createRuntime };

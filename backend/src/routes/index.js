@@ -6,8 +6,10 @@ const { badRequest, notFound, unprocessable } = require('../utils/errors');
 const { detectImage } = require('../storage/file-store');
 const h = require('../middleware/http');
 
-module.exports = function createRoutes({ config, store, queue, services, adapters, files, clock, bus }) {
-  const { auth, admin, catalog, fiscal, fleet, routes } = services;
+module.exports = function createRoutes({ config, store, queue, services, adapters, files, clock, bus, idempotency }) {
+  const { auth, admin, catalog, fiscal, fleet, routes, config: cfg, execution, tracking } = services;
+  const { cmpVersion } = require('../services/params');
+  const { HttpError } = require('../utils/errors');
   const router = express.Router();
   const { wrap, meta, requirePermission: need, requireAnyPermission: needAny } = h;
   const authed = h.requireAuth(auth);
@@ -164,11 +166,49 @@ module.exports = function createRoutes({ config, store, queue, services, adapter
     const d = await fleet.deviceFromToken(req.get('x-device-token'));
     if (d.companyId !== req.ctx.companyId) throw new (require('../utils/errors').HttpError)(403, 'DEVICE_REQUIRED', 'Este dispositivo pertenece a otra empresa.');
     if (d.driverEmail && d.driverEmail !== req.ctx.email.toLowerCase()) throw new (require('../utils/errors').HttpError)(403, 'DEVICE_DRIVER_MISMATCH', `Este dispositivo está asignado a ${d.driverName}.`);
+    // Versión mínima de la app (parámetro heredado): 426 si el cliente es más viejo o no declara su versión.
+    const eff = await cfg.effective(req.ctx, { userId: req.ctx.userId, centerId: req.ctx.centerId || undefined });
+    const min = eff.values.min_client_version; const have = req.get('x-client-version');
+    if (min && (!have || cmpVersion(have, min) < 0)) throw new HttpError(426, 'UPGRADE_REQUIRED', `Actualiza la aplicación: se requiere la versión ${min} o superior${have ? ` (tienes la ${have})` : ''}.`, { minVersion: min });
     req.device = d; next();
   });
   router.get('/mobile/v1/me', need('deliveries.execute'), deviceGuard, (req, res) => res.json({ user: { id: req.ctx.userId, name: req.ctx.name, email: req.ctx.email, role: req.ctx.roleName }, company: { id: req.ctx.companyId, name: req.ctx.company.legal_name }, device: { id: req.device.id, alias: req.device.alias, vehiclePlate: req.device.vehiclePlate } }));
   router.get('/mobile/v1/routes', need('deliveries.execute'), deviceGuard, wrap(async (req, res) => res.json(await routes.assignedTo(req.ctx))));
   router.post('/mobile/v1/routes/:id/start', need('deliveries.execute'), deviceGuard, wrap(async (req, res) => res.json(await routes.start(req.ctx, req.params.id))));
+  // Ejecución en campo: todas las acciones que escriben exigen Idempotency-Key.
+  const field = [need('deliveries.execute'), deviceGuard];
+  router.get('/mobile/v1/products', ...field, wrap(async (req, res) => res.json(await execution.catalog(req.ctx))));
+  router.get('/mobile/v1/incident-reasons', ...field, (_req, res) => res.json(execution.incidentCatalog()));
+  router.get('/mobile/v1/config', ...field, wrap(async (req, res) => res.json(await cfg.forDevice(req.ctx))));
+  router.post('/mobile/v1/config/ack', ...field, wrap(async (req, res) => res.json(await cfg.ack(req.ctx, req.device.id, req.body?.version))));
+  router.post('/mobile/v1/routes/:id/stops/:clientId/arrive', ...field, idempotency, wrap(async (req, res) => res.status(201).json(await execution.arrive(req.ctx, req.params.id, req.params.clientId, req.body || {}))));
+  router.post('/mobile/v1/routes/:id/stops/:clientId/skip', ...field, idempotency, wrap(async (req, res) => res.json(await execution.skip(req.ctx, req.params.id, req.params.clientId, req.body || {}))));
+  router.post('/mobile/v1/visits/:id/delivery', ...field, idempotency, wrap(async (req, res) => res.status(201).json(await execution.delivery(req.ctx, req.params.id, req.body || {}))));
+  router.post('/mobile/v1/visits/:id/evidences', ...field, express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: '8mb' }), idempotency, wrap(async (req, res) => res.status(201).json(await execution.evidence(req.ctx, req.params.id, String(req.query.kind || '').toUpperCase(), req.body))));
+  router.post('/mobile/v1/visits/:id/payments', ...field, idempotency, wrap(async (req, res) => res.status(201).json(await execution.payment(req.ctx, req.params.id, req.body || {}))));
+  router.post('/mobile/v1/visits/:id/close', ...field, idempotency, wrap(async (req, res) => res.json(await execution.closeVisit(req.ctx, req.params.id))));
+  router.post('/mobile/v1/routes/:id/finish', ...field, idempotency, wrap(async (req, res) => res.json(await execution.finish(req.ctx, req.params.id))));
+  router.post('/mobile/v1/incidents', ...field, idempotency, wrap(async (req, res) => res.status(201).json(await execution.incident(req.ctx, req.body || {}))));
+  router.post('/mobile/v1/positions', ...field, wrap(async (req, res) => res.json(await tracking.ingest(req.ctx, req.body?.routeId, req.body?.positions))));
+
+  // Panel: ejecución de una ruta, evidencias, torre de control y simulador
+  router.get('/routes/:id/execution', need('tracking.read'), wrap(async (req, res) => res.json(await execution.executionOf(req.ctx, req.params.id, require('../services/context').scopeCenterIds(req.ctx)))));
+  router.get('/evidences/:id', need('tracking.read'), wrap(async (req, res) => {
+    const f = await execution.evidenceFile(req.ctx, req.params.id, require('../services/context').scopeCenterIds(req.ctx));
+    res.set({ 'Content-Type': f.mime, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' }).send(f.buffer);
+  }));
+  router.get('/tracking/live', need('tracking.read'), wrap(async (req, res) => res.json(await tracking.live(req.ctx))));
+  router.get('/tracking/routes/:id/history', need('tracking.read'), wrap(async (req, res) => res.json(await tracking.history(req.ctx, req.params.id, req.query))));
+  router.post('/routes/:id/simulation', need('simulator.run'), wrap(async (req, res) => res.status(201).json(await tracking.startSimulation(req.ctx, req.params.id, req.body || {}))));
+  router.delete('/routes/:id/simulation', need('simulator.run'), wrap(async (req, res) => res.json(await tracking.stopSimulation(req.ctx, req.params.id))));
+
+  // Configuración versionada, formularios y parámetros con herencia
+  router.get('/config', need('config.manage'), wrap(async (req, res) => res.json(await cfg.get(req.ctx))));
+  router.put('/config/draft', need('config.manage'), wrap(async (req, res) => res.json(await cfg.saveDraft(req.ctx, req.body || {}))));
+  router.post('/config/publish', need('config.publish'), wrap(async (req, res) => res.status(201).json(await cfg.publish(req.ctx, req.body || {}))));
+  router.get('/config/versions', need('config.manage'), wrap(async (req, res) => res.json(await cfg.versions(req.ctx))));
+  router.get('/config/versions/:v', need('config.manage'), wrap(async (req, res) => res.json(await cfg.versionPayload(req.ctx, req.params.v))));
+  router.get('/parameters/effective', needAny('config.manage', 'routes.read'), wrap(async (req, res) => res.json(await cfg.effective(req.ctx, req.query))));
 
   // Auditoría y notificaciones
   router.get('/audit', need('audit.read'), wrap(async (req, res) => res.json(await admin.audits.list(req.ctx, req.query))));

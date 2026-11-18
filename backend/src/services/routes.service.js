@@ -5,6 +5,7 @@ const { uuid, iso } = require('../utils/ids');
 const { HttpError, conflict, notFound, unprocessable, badRequest } = require('../utils/errors');
 const { str } = require('../utils/validate');
 const { scopeCenterIds, makeAudit } = require('./context');
+const params = require('./params');
 
 const STATUS = { DRAFT: 'DRAFT', PENDING: 'PENDING_APPROVAL', PUBLISHED: 'PUBLISHED', IN_PROGRESS: 'IN_PROGRESS', COMPLETED: 'COMPLETED', CANCELLED: 'CANCELLED' };
 const EDITABLE = new Set([STATUS.DRAFT, STATUS.PENDING, STATUS.PUBLISHED]);
@@ -18,7 +19,7 @@ const dto = (r, stopIds = [], approval = null) => ({
   approval: approval ? { id: approval.id, revision: approval.revision, decision: approval.decision, requestedBy: approval.requested_by, requestedAt: approval.requested_at } : null,
 });
 
-function createRoutesService({ store, clock, bus }) {
+function createRoutesService({ store, clock, bus, config, execution }) {
   const audit = makeAudit(clock);
   const now = () => iso(new Date(clock()));
   const emit = (r, ctx, route, what) => bus?.publish({ companyId: ctx.companyId, centerId: route.center_id, type: 'route.updated', data: { routeId: route.id, status: route.status, revision: route.revision, what } });
@@ -33,8 +34,8 @@ function createRoutesService({ store, clock, bus }) {
   const needEditable = (route) => { if (!EDITABLE.has(route.status)) throw conflict(`La ruta está ${LABELS[route.status].toLowerCase()} y ya no se puede editar.`, 'ROUTE_LOCKED'); };
 
   async function present(r, ctx, rows) {
-    const stops = await r.routes.stopsOf(rows.map((x) => x.id)); const out = [];
-    for (const row of rows) out.push(dto(row, stops.get(row.id) ?? [], row.status === 'PENDING_APPROVAL' ? await r.approvals.open(row.id) : null));
+    const stops = await r.routes.stopsOf(rows.map((x) => x.id)); const out = []; const exec = await r.visits.summary(rows.filter((x) => ['IN_PROGRESS', 'COMPLETED'].includes(x.status)).map((x) => x.id));
+    for (const row of rows) { const d = dto(row, stops.get(row.id) ?? [], row.status === 'PENDING_APPROVAL' ? await r.approvals.open(row.id) : null); const e = exec.get(row.id); d.execution = e ? { visitsClosed: e.closed, visitsSkipped: e.skipped, visitsOpen: e.open, stops: d.stopIds.length, collectedCents: e.collectedCents } : null; out.push(d); }
     return out;
   }
   const presentOne = async (r, ctx, id) => (await present(r, ctx, [await r.routes.get(ctx.companyId, id)]))[0];
@@ -259,7 +260,7 @@ function createRoutesService({ store, clock, bus }) {
         const rows = await r.routes.listAssigned(ctx.companyId, ctx.userId, [STATUS.PUBLISHED, STATUS.IN_PROGRESS]); const out = [];
         for (const row of rows) { const [d] = await present(r, ctx, [row]); out.push({ ...d, stops: (await r.routes.stopClients(row.id)).map((s) => ({ clientId: s.id, seq: s.seq, name: s.name, address: s.address, phone: s.phone, lat: s.lat, lng: s.lng })) }); }
         return out;
-      });
+      }).then(async (list) => { for (const route of list) { const state = new Map((await execution.stopsState(ctx, route.id)).map((s) => [s.clientId, s])); route.stops = route.stops.map((s) => ({ ...s, ...(state.get(s.clientId) ?? {}) })); } return list; });
     },
     async start(ctx, id) {
       return store.tx(async (r) => {
@@ -269,6 +270,11 @@ function createRoutesService({ store, clock, bus }) {
         if (route.status !== STATUS.PUBLISHED) throw conflict(`La ruta no está publicada (está ${LABELS[route.status].toLowerCase()}).`, 'ROUTE_STATE');
         if (route.approved_revision !== route.revision) throw conflict('La versión actual de la ruta no está aprobada.', 'NOT_APPROVED');
         const op = await r.users.getById(ctx.userId); if (!op || op.status !== 'ACTIVE') throw conflict('Tu usuario no está activo.', 'OPERATOR_INACTIVE');
+        // Horario de embarque (parámetro heredado: usuario > ruta > zona > centro > empresa). Fuera de horario solo con permiso.
+        const pub = await config.publishedPayload(r, ctx.companyId);
+        const eff = params.resolve(pub.payload.parameters, { centerId: route.center_id, zoneId: route.zone_id || undefined, routeId: route.id, userId: ctx.userId });
+        const tz = (await r.companies.get(ctx.companyId))?.timezone || 'America/Mexico_City';
+        if (!params.insideWindow(eff.values.loading_window, new Date(clock()), tz) && !ctx.can('routes.start_outside_window')) throw new HttpError(409, 'OUTSIDE_LOADING_WINDOW', `Solo puedes iniciar la ruta en el horario de embarque (${eff.values.loading_window}, definido a nivel ${eff.origins.loading_window.toLowerCase()}).`, { window: eff.values.loading_window });
         const t = now();
         await r.routes.update(ctx.companyId, id, { status: STATUS.IN_PROGRESS, started_at: t });
         await r.routeHistory.add({ routeId: id, from: STATUS.PUBLISHED, to: STATUS.IN_PROGRESS, revision: route.revision, actorId: ctx.userId, at: t });
