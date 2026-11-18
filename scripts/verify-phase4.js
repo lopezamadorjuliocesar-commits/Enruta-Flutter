@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.resolve(__dirname, '..');
-const run = (cmd, args, opts = {}) => { const t = Date.now(); const r = spawnSync(cmd, args, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, CI: '1', ...(opts.env || {}) }, ...opts }); return { ...r, out: `${r.stdout || ''}${r.stderr || ''}`, ms: Date.now() - t }; };
+const run = (cmd, args, { env: extra = {}, ...opts } = {}) => { const t = Date.now(); const r = spawnSync(cmd, args, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...opts, env: { ...process.env, CI: '1', ...extra } }); return { ...r, out: `${r.stdout || ''}${r.stderr || ''}`, ms: Date.now() - t }; };
 const results = []; const lines = [];
 const log = (s = '') => { lines.push(s); console.log(s); };
 const step = (name, ok, detail) => { results.push({ name, ok }); log(`${ok ? '✅' : '❌'} ${name}${detail ? ` — ${detail}` : ''}`); };
