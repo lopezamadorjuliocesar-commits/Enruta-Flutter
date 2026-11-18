@@ -8,14 +8,17 @@ export interface DriverVisit {
   id: string; status: 'OPEN' | 'CLOSED' | 'SKIPPED'; arrivedAt: string | null; distanceM: number | null; outsideRadiusReason: string | null; skipReason: string | null; closedAt: string | null;
   deliveryStatus: 'DELIVERED' | 'PARTIAL' | 'FAILED' | null; totalCents: number; paidCents: number; photos: number; signatures: number;
 }
+export interface DriverOrder { id: string; notes: string | null; lines: { productId: string; name: string; unit: string; qty: number }[]; }
+export interface DriverAsset { id: string; code: string; kind: string; }
 export interface DriverStop {
+  order: DriverOrder | null; assets: DriverAsset[]; displayAudit: boolean;
   clientId: string; seq: number; name: string; address: string | null; phone: string | null; lat: number | null; lng: number | null;
   visit: DriverVisit | null; balanceCents: number; overdueCents: number; oldestOverdueDays: number;
 }
 export interface DriverRoute {
   id: string; name: string; day: string | null; status: 'PUBLISHED' | 'IN_PROGRESS'; statusLabel: string; revision: number; startedAt: string | null; stops: DriverStop[];
 }
-export interface DriverProduct { id: string; sku: string; name: string; unit: string; priceCents: number | null; }
+export interface DriverProduct { id: string; sku: string; name: string; unit: string; priceCents: number | null; listPriceCents?: number | null; promoCents?: number; promotion?: { name: string } | null; }
 export interface DriverConfig { version: number; modules: { name: string; enabled: boolean }[]; forms: Record<'entrega' | 'cobro' | 'visita', FieldDef[]>; parameters: { values: Record<string, string | number>; origins: Record<string, string> }; }
 export type DriverBlock = '' | 'REVOKED' | 'BLOCKED' | 'MISMATCH' | 'REQUIRED' | 'UPGRADE';
 export interface IncidentReason { code: string; label: string; }
@@ -155,6 +158,10 @@ export class DriverService {
   payment(visitId: string, b: Record<string, unknown>) {
     return this.field(`payment:${visitId}`, b, (h) => this.api.post<{ balanceCents: number }>(`/mobile/v1/visits/${visitId}/payments`, b, { headers: h }));
   }
+  displayAudit(visitId: string, b: Record<string, unknown>) { return this.field(`audit:${visitId}`, b, (h) => this.api.post<{ lines: number; belowExpected: number }>(`/mobile/v1/visits/${visitId}/display-audit`, b, { headers: h })); }
+  assetAction(visitId: string, action: 'verify' | 'loan' | 'return', b: Record<string, unknown>) { return this.field(`asset:${visitId}:${action}:${b['assetId']}`, b, (h) => this.api.post(`/mobile/v1/visits/${visitId}/assets/${action}`, b, { headers: h })); }
+  /** Catálogo con el precio EFECTIVO para el cliente (su lista de precios y promociones vigentes). */
+  async productsFor(clientId: string): Promise<DriverProduct[]> { try { return await this.api.get<DriverProduct[]>('/mobile/v1/products', { headers: this.headers, params: { clientId } }); } catch (e) { this.handle(e); return this.products(); } }
   closeVisit(visitId: string) { return this.field(`close:${visitId}`, visitId, (h) => this.api.post(`/mobile/v1/visits/${visitId}/close`, {}, { headers: h })); }
   finish(routeId: string) { return this.field(`finish:${routeId}`, routeId, (h) => this.api.post<{ summary: Record<string, unknown> }>(`/mobile/v1/routes/${routeId}/finish`, {}, { headers: h })); }
   incident(b: Record<string, unknown>) { return this.field('incident', b, (h) => this.api.post(`/mobile/v1/incidents`, b, { headers: h })); }

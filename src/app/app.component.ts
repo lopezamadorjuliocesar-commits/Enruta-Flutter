@@ -30,6 +30,7 @@ import { ImportScreenComponent } from './screens/import-screen.component';
 import { ProductsScreenComponent } from './screens/products-screen.component';
 import { ClientsScreenComponent } from './screens/clients-screen.component';
 import { PricesScreenComponent } from './screens/prices-screen.component';
+import { InventoryScreenComponent } from './screens/inventory-screen.component';
 import { UsersScreenComponent } from './screens/users-screen.component';
 import { DevicesScreenComponent } from './screens/devices-screen.component';
 import { ProfileScreenComponent } from './screens/profile-screen.component';
@@ -86,6 +87,7 @@ export class AppComponent {
     products: ProductsScreenComponent,
     clients: ClientsScreenComponent,
     prices: PricesScreenComponent,
+    inventory: InventoryScreenComponent,
     users: UsersScreenComponent,
     devices: DevicesScreenComponent,
     profile: ProfileScreenComponent,

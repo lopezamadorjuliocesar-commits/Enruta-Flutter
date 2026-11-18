@@ -1,4 +1,4 @@
-import { CurrencyPipe, DatePipe } from '@angular/common';
+import { CurrencyPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, Input, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import type { EnrutaState } from '../core/enruta-state.service';
@@ -9,7 +9,7 @@ import { PermissionStore } from '../core/rbac/permission.store';
 @Component({
   selector: 'app-routes-screen',
   standalone: true,
-  imports: [FormsModule, CurrencyPipe, DatePipe],
+  imports: [FormsModule, CurrencyPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './routes-screen.component.html',
 })

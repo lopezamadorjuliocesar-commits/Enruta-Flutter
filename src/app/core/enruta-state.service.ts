@@ -20,9 +20,9 @@ import { TemplateFormat, TemplateKind, downloadTemplate as saveTemplate } from '
 export type View =
   | 'dashboard' | 'routes' | 'cartaporte' | 'planner' | 'approvals' | 'reports' | 'settlements' | 'audit'
   | 'configuration' | 'parameters' | 'forms' | 'publish' | 'brand' | 'import'
-  | 'products' | 'clients' | 'prices' | 'users' | 'devices' | 'profile' | 'notifications' | 'context';
+  | 'products' | 'clients' | 'prices' | 'inventory' | 'users' | 'devices' | 'profile' | 'notifications' | 'context';
 export type AuthView = 'login' | 'verify' | 'recover' | 'register' | 'plan' | 'submitted' | 'permission' | 'expired';
-export type RecordKind = 'producto' | 'cliente' | 'ruta' | 'usuario' | 'lista' | 'promocion' | 'descuento' | 'dispositivo' | 'liquidacion';
+export type RecordKind = 'producto' | 'cliente' | 'ruta' | 'usuario' | 'dispositivo';
 type ImportTarget = 'clientes' | 'productos';
 
 interface NavItem {
@@ -111,10 +111,6 @@ export class EnrutaState {
   routes: SimpleRecord[] = [];
   /** Usuarios de la empresa (backend). Los ids numéricos son un alias estable del UUID mientras las rutas locales los referencian (Fase 2). */
   get users(): SimpleRecord[] { return this.usersView(); }
-  priceLists: SimpleRecord[] = [];
-  promotions: SimpleRecord[] = [];
-  discounts: SimpleRecord[] = [];
-  priceTab: 'Listas' | 'Promociones' | 'Descuentos' = 'Listas';
   devices: SimpleRecord[] = [];
   notifications: SimpleRecord[] = [];
   auditEvents: SimpleRecord[] = [];
@@ -130,11 +126,6 @@ export class EnrutaState {
   brandColor = '';
   brandName = '';
   brandLogoDataUrl = '';
-  /** Integraciones internas: todas activas por defecto, excepto mensajería (SMS y WhatsApp). */
-  static readonly MESSAGING_INTEGRATIONS = ['SMS', 'WhatsApp'] as const;
-  static readonly DEFAULT_INTEGRATIONS = ['ERP del cliente', 'Proveedor de timbrado', 'Mapas y rutas', 'Optimización de rutas', 'Geolocalización', 'Notificaciones push', 'Webhooks', 'Sincronización de datos', 'Telemetría de flota', 'Pagos con tarjeta'];
-  connectionState: Record<string, boolean> = EnrutaState.defaultConnectionState();
-  messagingConfig = { smsSender: '', whatsappNumber: '' };
   /** Cartas Porte generadas y últimos datos de emisor, vehículo, seguro y operador (se reutilizan en el siguiente documento). */
   cartasPorte: CartaPorteRecord[] = [];
   cartaPorteDefaults: Pick<CartaPorteData, 'emisor' | 'lugarExpedicion' | 'serie' | 'auto' | 'figuras'> | null = null;
@@ -153,6 +144,7 @@ export class EnrutaState {
       { label: 'Clientes', view: 'clients', icon: '♙' },
       { label: 'Catálogo', view: 'products', icon: '▦' },
       { label: 'Precios y promociones', view: 'prices', icon: '%' },
+      { label: 'Inventario y módulos', view: 'inventory', icon: '▧' },
       { label: 'Importar datos', view: 'import', icon: '⇧' },
     ] },
     { label: 'ADMINISTRACIÓN', items: [
@@ -171,7 +163,7 @@ export class EnrutaState {
       reports: 'Indicadores', settlements: 'Liquidaciones', audit: 'Bitácora de auditoría',
       configuration: 'Configuración de la empresa', parameters: 'Panel de parámetros', forms: 'Editor de formularios',
       publish: 'Publicar configuración', brand: 'Marca e identidad visual', import: 'Alta de empresa e importación',
-      products: 'Catálogo de productos', clients: 'Clientes', prices: 'Listas de precios y promociones',
+      products: 'Catálogo de productos', clients: 'Clientes', prices: 'Listas de precios y promociones', inventory: 'Inventario y módulos',
       users: 'Usuarios y roles', devices: 'Dispositivos', profile: 'Mi perfil', notifications: 'Notificaciones', context: 'Cambiar de contexto',
     };
     return titles[this.view];
@@ -218,9 +210,6 @@ export class EnrutaState {
 
 
 
-  createPriceRecord(): void {
-    this.openCreate(this.priceTab === 'Listas' ? 'lista' : this.priceTab === 'Promociones' ? 'promocion' : 'descuento');
-  }
 
 
 
@@ -336,7 +325,7 @@ export class EnrutaState {
    * (rutas, clientes del planeador, precios, formularios…) se guardan en este navegador, separados por
    * EMPRESA y CENTRO activos (IDs estables). Las cuentas, sesiones, usuarios, roles y permisos YA NO viven aquí.
    */
-  private static readonly OPERATIONAL_KEYS = ['settlements', 'priceLists', 'promotions', 'discounts', 'devices', 'notifications', 'auditEvents', 'profilePreferences', 'brandColor', 'brandName', 'brandLogoDataUrl', 'brandLogoName', 'connectionState', 'messagingConfig', 'cartasPorte', 'cartaPorteDefaults', 'selectedPlan'];
+  private static readonly OPERATIONAL_KEYS = ['devices', 'notifications', 'auditEvents', 'profilePreferences', 'brandColor', 'brandName', 'brandLogoDataUrl', 'brandLogoName', 'cartasPorte', 'cartaPorteDefaults', 'selectedPlan'];
   private get interimKey(): string | null {
     const i = this.session.info(); return i ? `enruta.interim.v1.${i.company.id}.${i.activeCenterId ?? 'todos'}` : null;
   }
@@ -347,7 +336,6 @@ export class EnrutaState {
     const data = this.read<Record<string, unknown>>(key, {});
     const self = this as unknown as Record<string, unknown>;
     for (const k of EnrutaState.OPERATIONAL_KEYS) if (data[k] !== undefined) self[k] = data[k];
-    this.normalizeIntegrations();
     this.applyBrand();
     void this.loadOperational();   // clientes, productos y rutas: fuente de verdad = backend
   }
@@ -363,14 +351,13 @@ export class EnrutaState {
 
   /** Vacía todo el estado operativo en memoria (cambio de empresa/centro, cierre de sesión). */
   private resetOperationalState(): void {
-    this.products = []; this.clients = []; this.routes = []; this.priceLists = []; this.promotions = []; this.discounts = []; this.devices = []; this.notifications = []; this.auditEvents = [];
-    this.approvals = []; this.settlements = []; this.cartasPorte = []; this.cartaPorteDefaults = null; this.activeRouteId = null;
+    this.products = []; this.clients = []; this.routes = []; this.devices = []; this.notifications = []; this.auditEvents = [];
+    this.approvals = []; this.cartasPorte = []; this.cartaPorteDefaults = null; this.activeRouteId = null;
     this.configStore.reset(); this.zonesList = []; this.inheritedValues = {}; this.inheritedOrigins = {}; this.changeNote = '';
     this.parameterSets = {}; this.deliveryFields = []; this.formsData = {}; this.activeClient = null; this.selectedDevice = null; this.selectedPlan = '';
     this.settingsModules = this.settingsModules.map((m) => ({ ...m, enabled: false }));
     this.brandColor = ''; this.brandName = ''; this.brandLogoDataUrl = ''; this.brandLogoName = '';
     this.profilePreferences = { criticalAlerts: false, dailySummary: false, versionNotices: false };
-    this.connectionState = EnrutaState.defaultConnectionState();
     this.routeMetrics = { distanceKm: 0, durationMin: 0, geometry: [], estimated: false, loading: false };
     this.modalKind = ''; this.showPasswordDialog = false; this.showTotpDialog = false; this.profileEditing = false; this.searchTerm = '';
   }
@@ -437,7 +424,7 @@ export class EnrutaState {
   private static readonly VIEW_PERMISSIONS: Partial<Record<View, string[]>> = {
     routes: ['routes.read'], planner: ['routes.write'], approvals: ['routes.approve'], reports: ['reports.read'], settlements: ['settlements.read'], audit: ['audit.read'],
     configuration: ['config.manage'], parameters: ['config.manage'], forms: ['config.manage'], publish: ['config.publish'], brand: ['config.manage'], import: ['import.run'],
-    products: ['catalog.read'], clients: ['clients.read'], prices: ['prices.read'], users: ['users.read'], devices: ['devices.manage'], cartaporte: ['fiscal.manage'],
+    products: ['catalog.read'], clients: ['clients.read'], prices: ['prices.read'], inventory: ['inventory.read'], users: ['users.read'], devices: ['devices.manage'], cartaporte: ['fiscal.manage'],
   };
 
   can(code: string): boolean { return this.perms.can(code); }
@@ -454,7 +441,6 @@ export class EnrutaState {
     if (view === 'planner') void this.refreshRoute();
     if (['configuration', 'forms', 'parameters', 'publish'].includes(view) && this.perms.canAny('config.manage', 'config.publish')) { if (this.configStore.view()) void this.refreshConfigVersions(); else void this.loadConfig(); }   // la primera vez se hidrata; después no se pisan las ediciones sin guardar
     if (view === 'users') void this.admin.loadAdmin();
-    if (view === 'audit') void this.loadServerAudit();
     if (view === 'profile') { void this.loadProfileData(); }
   }
 
@@ -598,14 +584,13 @@ export class EnrutaState {
 
   // ======================= CRUD genérico =======================
   private listFor(kind: RecordKind): SimpleRecord[] {
-    return { producto: this.products, cliente: this.clients, ruta: this.routes, usuario: this.users, lista: this.priceLists, promocion: this.promotions, descuento: this.discounts, dispositivo: this.devices, liquidacion: this.settlements }[kind];
+    return { producto: this.products, cliente: this.clients, ruta: this.routes, usuario: this.users, dispositivo: this.devices }[kind];
   }
 
   private setList(kind: RecordKind, list: SimpleRecord[]): void {
     switch (kind) {
       case 'producto': this.products = list; break; case 'cliente': this.clients = list; break; case 'ruta': this.routes = list; break;
-      case 'lista': this.priceLists = list; break; case 'promocion': this.promotions = list; break;
-      case 'descuento': this.discounts = list; break; case 'dispositivo': this.devices = list; break; case 'liquidacion': this.settlements = list; break;
+      case 'dispositivo': this.devices = list; break;
     }
   }
 
@@ -625,7 +610,6 @@ export class EnrutaState {
     this.draftPrice = record.price !== undefined ? String(record.price) : ''; this.draftEmail = record.email ?? ''; this.draftRole = record.role ?? 'Repartidor';
     this.draftDay = record.day ?? 'Lunes'; this.draftColor = record.color ?? '#1769aa'; this.draftOperator = record.operatorId ? String(record.operatorId) : '';
     if (kind === 'ruta') this.draftDetail = '';
-    if (kind === 'liquidacion') { this.draftOperator = String(record.refId ?? ''); this.draftPrice = String(record.collected ?? ''); this.draftDeposit = String(record.deposited ?? ''); this.draftDate = record.date ?? ''; }
   }
 
   closeModal(): void {
@@ -640,7 +624,7 @@ export class EnrutaState {
   }
 
   async saveRecord(): Promise<void> {
-    const kind = this.modalKind; const name = this.draftName.trim() || (this.modalKind === 'liquidacion' ? 'Liquidación' : '');
+    const kind = this.modalKind; const name = this.draftName.trim();
     if (!kind) return;
     if (!name) { this.fail('Escribe un nombre antes de guardar.'); return; }
     if (kind === 'usuario') { await this.saveUser(name); return; }
@@ -649,22 +633,6 @@ export class EnrutaState {
     const existing = this.editingId !== null ? list.find((item) => item.id === this.editingId) : undefined;
     const rec: SimpleRecord = existing ? { ...existing } : { id: Date.now(), name, detail: '', status: 'Activo' };
     rec.name = name; rec.detail = this.draftDetail.trim(); rec.status = this.draftStatus || rec.status;
-    switch (kind) {
-      case 'liquidacion': {
-        const route = this.routes.find((r) => r.id === Number(this.draftOperator));
-        if (!route) { this.fail('Selecciona la ruta a liquidar.'); return; }
-        const collected = Number(this.draftPrice); const deposited = Number(this.draftDeposit);
-        if (!Number.isFinite(collected) || collected < 0 || this.draftPrice === '') { this.fail('Escribe el monto cobrado (número positivo).'); return; }
-        if (!Number.isFinite(deposited) || deposited < 0 || this.draftDeposit === '') { this.fail('Escribe el monto depositado (número positivo).'); return; }
-        rec.refId = route.id; rec.collected = collected; rec.deposited = deposited; rec.date = this.draftDate || new Date().toISOString().slice(0, 10);
-        rec.name = route.name; rec.detail = `${rec.date} · ${route.detail}`;
-        const diff = deposited - collected; const tol = Number(this.companyParameters['cashTolerance'] || 0);
-        rec.status = Math.abs(diff) === 0 ? 'Conciliada' : Math.abs(diff) <= tol ? 'Dentro de tolerancia' : 'Con diferencia';
-        if (rec.status === 'Con diferencia') this.addNotification('Diferencia de efectivo', `${route.name}: ${diff.toFixed(2)} MXN`, 'Críticas');
-        break;
-      }
-      default: break;
-    }
     this.setList(kind, existing ? list.map((item) => (item.id === rec.id ? rec : item)) : [...list, rec]);
     this.modalKind = ''; this.editingId = null;
     this.addAuditEvent(`${existing ? 'Editó' : 'Creó'} ${kind}: ${name}`);
@@ -1207,31 +1175,6 @@ export class EnrutaState {
     } catch { this.inheritedValues = {}; this.inheritedOrigins = {}; }
   }
 
-  static defaultConnectionState(): Record<string, boolean> {
-    const state: Record<string, boolean> = {};
-    for (const name of EnrutaState.DEFAULT_INTEGRATIONS) state[name] = true;
-    for (const name of EnrutaState.MESSAGING_INTEGRATIONS) state[name] = false;
-    return state;
-  }
-
-  /** Garantiza que toda integración (salvo SMS y WhatsApp) quede activa aunque existan datos guardados antiguos. */
-  private normalizeIntegrations(): void {
-    const saved = this.connectionState ?? {};
-    const next = EnrutaState.defaultConnectionState();
-    for (const name of EnrutaState.MESSAGING_INTEGRATIONS) next[name] = !!saved[name];
-    this.connectionState = next;
-    this.messagingConfig = Object.assign({ smsSender: '', whatsappNumber: '' }, this.messagingConfig);
-  }
-
-  /** Solo la mensajería (SMS y WhatsApp) se activa manualmente, desde Configuración. */
-  toggleConnection(name: string): void {
-    if (!(EnrutaState.MESSAGING_INTEGRATIONS as readonly string[]).includes(name)) return;
-    this.connectionState[name] = !this.connectionState[name];
-    this.addAuditEvent(`${this.connectionState[name] ? 'Conectó' : 'Desconectó'} la integración ${name}`);
-    this.notify(this.connectionState[name] ? `${name} conectado.` : `Se desconectó ${name}.`);
-  }
-
-
   applyBrand(): void {
     if (typeof document === 'undefined') return;
     if (/^#[0-9a-fA-F]{6}$/.test(this.brandColor)) document.documentElement.style.setProperty('--blue', this.brandColor);
@@ -1245,16 +1188,7 @@ export class EnrutaState {
     const link = document.createElement('a'); link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
   }
 
-  /** Bitácora persistente del servidor (append-only con cadena de hashes). */
-  get serverAudit() { return this.admin.audit(); }
-  async loadServerAudit(): Promise<void> {
-    try { await this.admin.loadAudit(); } catch (e) { if (!isCancelled(e)) this.fail(this.session.errorMessage(e, 'No se pudo cargar la bitácora.')); }
-  }
   actionLabel(action: string): string { return EnrutaState.ACTION_LABELS[action] ?? action; }
-  exportAudit(): void {
-    this.downloadCsv('bitacora.csv', [['Fecha', 'Usuario', 'Acción', 'Entidad', 'Detalle'], ...this.admin.audit().map((e) => [e.at, e.actor ?? '', e.action, e.entity ?? '', e.detail ? JSON.stringify(e.detail) : ''])]);
-  }
-
   exportRoutes(): void {
     this.downloadCsv('rutas.csv', [['Ruta', 'Operador/Día', 'Estado', 'Paradas'], ...this.routes.map((r) => [r.name, r.detail, r.status, r.stopIds?.length ?? 0])]);
   }
@@ -1370,12 +1304,10 @@ export class EnrutaState {
   // ======================= v2: toasts, seguridad, importación, formularios, marca, liquidaciones =======================
   toastKind: 'ok' | 'error' = 'ok';
   profileTab: 'general' | 'seguridad' | 'preferencias' | 'sesiones' = 'general';
-  reportPeriod: '7' | '30' | '90' | 'all' = '30';
   activeForm: 'entrega' | 'cobro' | 'visita' = 'entrega';
   formsData: Record<string, DeliveryField[]> = {};
   selectedFieldId: number | null = null;
   formDirty = false;
-  settlements: SimpleRecord[] = [];
   draftDeposit = '';
   draftDate = '';
   importMode: 'omitir' | 'actualizar' = 'omitir';
@@ -1658,22 +1590,6 @@ export class EnrutaState {
   }
 
   removeBrandLogo(): void { this.brandLogoDataUrl = ''; this.brandLogoName = ''; this.persist(); }
-
-  // ---- liquidaciones ----
-  get settlementTotals(): { collected: number; deposited: number; diff: number } {
-    const collected = this.settlements.reduce((s, r) => s + (r.collected ?? 0), 0); const deposited = this.settlements.reduce((s, r) => s + (r.deposited ?? 0), 0);
-    return { collected, deposited, diff: deposited - collected };
-  }
-
-  settlementDiff(r: SimpleRecord): number { return (r.deposited ?? 0) - (r.collected ?? 0); }
-
-  // ---- reportes ----
-  get reportSince(): number { return this.reportPeriod === 'all' ? 0 : Date.now() - Number(this.reportPeriod) * 86_400_000; }
-  get periodEvents(): SimpleRecord[] { return this.auditEvents.filter((e) => e.id >= this.reportSince); }
-  get previousPeriodEvents(): SimpleRecord[] {
-    if (this.reportPeriod === 'all') return [];
-    const span = Number(this.reportPeriod) * 86_400_000; return this.auditEvents.filter((e) => e.id < this.reportSince && e.id >= this.reportSince - span);
-  }
 
   private filterRecords(records: SimpleRecord[]): SimpleRecord[] {
     const query = this.searchTerm.trim().toLowerCase();

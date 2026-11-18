@@ -116,7 +116,7 @@
     <section class="modal-card" role="dialog" aria-modal="true" [attr.aria-label]="state.kindLabel(state.modalKind)" (click)="$event.stopPropagation()">
       <button class="modal-close" type="button" aria-label="Cerrar" (click)="state.closeModal()">×</button><span class="eyebrow">{{ state.editingId !== null ? 'EDITAR REGISTRO' : 'NUEVO REGISTRO' }}</span><h2>{{ state.editingId !== null ? 'Editar' : 'Crear' }} {{ state.kindLabel(state.modalKind).toLowerCase() }}</h2><p>Completa la información. Podrás modificarla cuando quieras.</p>
       <form (ngSubmit)="state.saveRecord()">
-        @if (state.modalKind !== 'liquidacion') { <label>{{ state.modalKind === 'usuario' ? 'Nombre completo' : 'Nombre' }}<input name="draftName" [(ngModel)]="state.draftName" placeholder="Escribe un nombre" required></label> }
+        @if (true) { <label>{{ state.modalKind === 'usuario' ? 'Nombre completo' : 'Nombre' }}<input name="draftName" [(ngModel)]="state.draftName" placeholder="Escribe un nombre" required></label> }
         @switch (state.modalKind) {
           @case ('ruta') {
             <div class="form-two"><label>Operador<select name="draftOperator" [(ngModel)]="state.draftOperator"><option value="">Sin asignar</option>@for (u of state.users; track u.id) { <option [value]="u.id">{{ u.name }}</option> }</select></label><label>Día de operación<select name="draftDay" [(ngModel)]="state.draftDay">@for (d of state.days; track d) { <option>{{ d }}</option> }</select></label></div>
@@ -138,10 +138,6 @@
             <label>Correo electrónico<input name="draftEmail" type="email" [(ngModel)]="state.draftEmail" placeholder="nombre@empresa.com" required></label>
             <div class="form-two"><label>Rol<select name="draftRole" [(ngModel)]="state.draftRole">@for (r of state.roles; track r) { <option>{{ r }}</option> }</select></label><label>Estado<select name="draftStatus" [(ngModel)]="state.draftStatus"><option>Activo</option><option>Inactivo</option></select></label></div>
             @if (state.editingId === null) { <label>Contraseña temporal<input name="draftPassword" type="password" [(ngModel)]="state.draftPassword" placeholder="12+ caracteres, mayúscula y número" autocomplete="new-password" required></label> }
-          }
-          @case ('liquidacion') {
-            <div class="form-two"><label>Ruta<select name="draftOperator" [(ngModel)]="state.draftOperator" required><option value="">Selecciona</option>@for (r of state.routes; track r.id) { <option [value]="r.id">{{ r.name }}</option> }</select></label><label>Fecha<input name="draftDate" type="date" [(ngModel)]="state.draftDate"></label></div>
-            <div class="form-two"><label>Efectivo cobrado (MXN)<input name="draftPrice" type="number" min="0" step="0.01" [(ngModel)]="state.draftPrice" required></label><label>Efectivo depositado (MXN)<input name="draftDeposit" type="number" min="0" step="0.01" [(ngModel)]="state.draftDeposit" required></label></div>
           }
           @default {
             <label>{{ state.modalKind === 'dispositivo' ? 'Modelo y versión de la app' : 'Detalle opcional' }}<input name="draftDetail" [(ngModel)]="state.draftDetail" placeholder="Opcional"></label>

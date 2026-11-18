@@ -1,10 +1,10 @@
 import { CurrencyPipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { FieldDef } from '../core/config.store';
 import { FieldError, requiredEvidence, validateForm } from '../core/form-validator';
 import { PermissionStore } from '../core/rbac/permission.store';
-import { DriverService } from './driver.service';
+import { DriverProduct, DriverService } from './driver.service';
 import { DRIVER_BASE, DRIVER_LIST } from './driver.styles';
 import { DynamicFormComponent } from './dynamic-form.component';
 import { resizeImage } from './image.util';
@@ -63,15 +63,18 @@ const newKey = (): string => (typeof crypto !== 'undefined' && 'randomUUID' in c
       @else {
         <section class="card step" data-testid="step-delivery"><h3>2 · Entrega @if (v.deliveryStatus) { <span class="chip good">{{ label(v.deliveryStatus) }}</span> }</h3>
           @if (v.status === 'OPEN') {
+            @if (s.order && !fromOrder()) { <div class="alert" role="note" data-testid="order-banner">Este cliente tiene un pedido de preventa ({{ s.order.lines.length }} productos). <button class="light-btn" type="button" (click)="useOrder()" data-testid="use-order">Cargar el pedido en la entrega</button></div> }
+            @if (fromOrder()) { <div class="ok" role="status">Entrega del pedido de preventa (cantidades pedidas fijas).</div> }
+            @if (autoventaOn()) { <label class="chk"><input type="checkbox" name="sale" [ngModel]="sale()" (ngModelChange)="sale.set($event)" data-testid="sale-toggle"> Autoventa: vender desde la carga del camión</label> }
             @for (l of lines(); track l.productId; let i = $index) {
               <div class="line" [attr.data-product]="l.name"><strong>{{ l.name }}</strong> <small>{{ l.priceCents / 100 | currency: 'MXN' : 'symbol-narrow' }} / {{ l.unit }}</small>
-                <div class="grid"><div><label [attr.for]="'qp' + i">Pedido</label><input [id]="'qp' + i" type="number" min="0" inputmode="numeric" [ngModel]="l.qtyPlanned" (ngModelChange)="patch(i, { qtyPlanned: toInt($event) })"></div>
-                  <div><label [attr.for]="'qd' + i">Entregado</label><input [id]="'qd' + i" type="number" min="0" inputmode="numeric" [ngModel]="l.qtyDelivered" (ngModelChange)="patch(i, { qtyDelivered: toInt($event) })"></div>
+                <div class="grid"><div><label [attr.for]="'qp' + i">Pedido</label><input [id]="'qp' + i" type="number" min="0" inputmode="numeric" [disabled]="fromOrder() || sale()" [ngModel]="sale() ? l.qtyDelivered : l.qtyPlanned" (ngModelChange)="patch(i, { qtyPlanned: toInt($event) })"></div>
+                  <div><label [attr.for]="'qd' + i">Entregado</label><input [id]="'qd' + i" type="number" min="0" inputmode="numeric" [ngModel]="l.qtyDelivered" (ngModelChange)="patch(i, sale() ? { qtyDelivered: toInt($event), qtyPlanned: toInt($event) } : { qtyDelivered: toInt($event) })"></div>
                   @if (canDiscount()) { <div><label [attr.for]="'dc' + i">Desc. %</label><input [id]="'dc' + i" type="number" min="0" max="100" inputmode="decimal" [ngModel]="l.discountPct" (ngModelChange)="patch(i, { discountPct: +$event || 0 })"></div> }</div>
                 @if (l.qtyDelivered < l.qtyPlanned) { <label [attr.for]="'rs' + i">Motivo de lo no entregado</label><input [id]="'rs' + i" [ngModel]="l.reason" (ngModelChange)="patch(i, { reason: $event })" maxlength="160" placeholder="Ej. Producto agotado"> }
-                <button class="ghost" type="button" (click)="removeLine(i)">Quitar</button></div>
+                @if (!fromOrder()) { <button class="ghost" type="button" (click)="removeLine(i)">Quitar</button> }</div>
             }
-            <div class="row"><select aria-label="Producto" [ngModel]="pick()" (ngModelChange)="pick.set($event)"><option value="">Agregar producto…</option>@for (p of freeProducts(); track p.id) { <option [value]="p.id">{{ p.name }} ({{ p.sku }})</option> }</select>
+            <div class="row"><select aria-label="Producto" [ngModel]="pick()" (ngModelChange)="pick.set($event)"><option value="">Agregar producto…</option>@for (p of freeProducts(); track p.id) { <option [value]="p.id">{{ p.name }} ({{ p.sku }}) · {{ (p.priceCents ?? 0) / 100 | currency: 'MXN' : 'symbol-narrow' }}{{ p.promotion ? ' · ' + p.promotion.name : '' }}</option> }</select>
               <button class="ghost" type="button" [disabled]="!pick()" (click)="addLine()" style="flex:0 0 auto">Agregar</button></div>
             <div class="total"><span>{{ statusLabel() }}</span><span data-testid="delivery-total">{{ totalCents() / 100 | currency: 'MXN' : 'symbol-narrow' }}</span></div>
             @if (status() === 'FAILED') { <label for="v-inc">Motivo de la incidencia (obligatorio)</label><select id="v-inc" [ngModel]="incident()" (ngModelChange)="incident.set($event)"><option value="">Selecciona…</option>@for (r of driver.reasons(); track r.code) { <option [value]="r.code">{{ r.label }}</option> }</select> }
@@ -81,6 +84,19 @@ const newKey = (): string => (typeof crypto !== 'undefined' && 'randomUUID' in c
           } @else { <p>Total: {{ v.totalCents / 100 | currency: 'MXN' : 'symbol-narrow' }}</p> }
         </section>
 
+        @if (comodatoOn() && s.assets.length) {
+          <section class="card step" data-testid="step-assets"><h3>Activos en comodato</h3>
+            @for (a of s.assets; track a.id) { <div class="line" [attr.data-asset]="a.code"><strong>{{ a.code }}</strong> <small>{{ a.kind }}</small>
+              @if (v.status === 'OPEN') { <label [attr.for]="'an' + a.id">Nota (obligatoria si falta o se recoge)</label><input [id]="'an' + a.id" [ngModel]="assetNote()[a.id] ?? ''" (ngModelChange)="setAssetNote(a.id, $event)" [name]="'an' + a.id" maxlength="200">
+                <div class="row"><button class="ghost" type="button" [disabled]="busy()" (click)="asset(a.id, 'verify', true)">Presente</button><button class="ghost" type="button" [disabled]="busy()" (click)="asset(a.id, 'verify', false)">Faltante</button><button class="ghost" type="button" [disabled]="busy()" (click)="asset(a.id, 'return')">Recoger</button></div> } </div> }
+          </section> }
+        @if (exhibicionOn()) {
+          <section class="card step" data-testid="step-display"><h3>Auditoría de exhibición @if (s.displayAudit) { <span class="chip good">Registrada</span> }</h3>
+            @if (v.status === 'OPEN') {
+              @for (l of auditLines(); track l.productId) { <div class="line"><strong>{{ l.name }}</strong><div class="grid"><div><label>Frentes</label><input type="number" min="0" inputmode="numeric" [ngModel]="l.fronts" (ngModelChange)="patchAudit(l.productId, { fronts: toInt($event) })" [name]="'fr' + l.productId"></div><div><label>Esperados</label><input type="number" min="0" inputmode="numeric" [ngModel]="l.expected" (ngModelChange)="patchAudit(l.productId, { expected: $event === '' ? null : toInt($event) })" [name]="'ex' + l.productId"></div></div></div> }
+              <div class="row"><select aria-label="Producto a auditar" [ngModel]="auditPick()" (ngModelChange)="auditPick.set($event)" name="auditPick"><option value="">Agregar producto…</option>@for (p of products(); track p.id) { <option [value]="p.id">{{ p.name }}</option> }</select><button class="ghost" type="button" [disabled]="!auditPick()" (click)="addAuditLine()" style="flex:0 0 auto">Agregar</button></div>
+              <button class="sec" type="button" [disabled]="busy() || !auditLines().length" (click)="saveAudit()" data-testid="save-audit">Guardar auditoría</button> }
+          </section> }
         <section class="card step" data-testid="step-evidence"><h3>3 · Evidencias <small>(fotos {{ v.photos }} · firmas {{ v.signatures }})</small></h3>
           @if (need().photo && !v.photos) { <div class="alert" role="note">El formulario exige al menos una foto.</div> }
           @if (need().signature && !v.signatures) { <div class="alert" role="note">El formulario exige la firma del cliente.</div> }
@@ -134,7 +150,13 @@ export class VisitPanelComponent {
   readonly visitaValues = signal<Record<string, unknown>>({}); readonly entregaValues = signal<Record<string, unknown>>({}); readonly cobroValues = signal<Record<string, unknown>>({});
   readonly visitaErrors = signal<FieldError[]>([]); readonly entregaErrors = signal<FieldError[]>([]); readonly cobroErrors = signal<FieldError[]>([]);
 
-  readonly freeProducts = computed(() => { const used = new Set(this.lines().map((l) => l.productId)); return this.driver.products().filter((p) => !used.has(p.id) && p.priceCents !== null); });
+  readonly products = signal<DriverProduct[]>([]);
+  readonly freeProducts = computed(() => { const used = new Set(this.lines().map((l) => l.productId)); return this.products().filter((p) => !used.has(p.id) && p.priceCents !== null); });
+  private readonly moduleOn = (name: string): boolean => !!this.driver.config()?.modules.find((m) => m.name === name && m.enabled);
+  readonly autoventaOn = computed(() => this.moduleOn('Autoventa')); readonly comodatoOn = computed(() => this.moduleOn('Activos en comodato')); readonly exhibicionOn = computed(() => this.moduleOn('Auditoría de exhibición'));
+  readonly sale = signal(false); readonly fromOrder = signal(false);
+  readonly assetNote = signal<Record<string, string>>({});
+  readonly auditLines = signal<{ productId: string; name: string; fronts: number; expected: number | null }[]>([]); readonly auditPick = signal('');
   readonly totalCents = computed(() => this.lines().reduce((s, l) => s + Math.round((l.qtyDelivered * l.priceCents * (10000 - Math.round(l.discountPct * 100))) / 10000), 0));
   readonly status = computed<'DELIVERED' | 'PARTIAL' | 'FAILED'>(() => {
     const ls = this.lines(); const d = ls.reduce((s, l) => s + l.qtyDelivered, 0); const p = ls.reduce((s, l) => s + l.qtyPlanned, 0);
@@ -145,8 +167,27 @@ export class VisitPanelComponent {
   toInt(v: unknown): number { const n = Math.floor(Number(v)); return Number.isFinite(n) && n > 0 ? n : 0; }
 
   constructor() {
+    // Catálogo con el precio efectivo de ESTE cliente (lista asignada + promociones vigentes).
+    effect(() => { const id = this.clientId(); untracked(() => void this.driver.productsFor(id).then((p) => this.products.set(p))); });
     // Valores por defecto declarados en los campos publicados.
     queueMicrotask(() => { const defaults = (f: FieldDef[]) => Object.fromEntries(f.filter((x) => x.defaultValue !== '').map((x) => [x.label, x.defaultValue])); this.visitaValues.set(defaults(this.formVisita())); this.entregaValues.set(defaults(this.formEntrega())); this.cobroValues.set(defaults(this.formCobro())); });
+  }
+
+  useOrder(): void {
+    const o = this.stop()?.order; if (!o) return;
+    this.lines.set(o.lines.map((l) => { const p = this.products().find((x) => x.id === l.productId); return { productId: l.productId, name: l.name, unit: l.unit, priceCents: p?.priceCents ?? 0, qtyPlanned: l.qty, qtyDelivered: l.qty, discountPct: 0, reason: '' }; })); this.fromOrder.set(true);
+  }
+  setAssetNote(id: string, v: string): void { this.assetNote.update((m) => ({ ...m, [id]: v })); }
+  async asset(assetId: string, action: 'verify' | 'return', present = true): Promise<void> {
+    const v = this.visit(); if (!v) return; const note = (this.assetNote()[assetId] ?? '').trim();
+    if ((action === 'return' || (action === 'verify' && !present)) && !note) { this.error.set('Escribe una nota para registrar el activo faltante o recogido.'); return; }
+    await this.run(() => this.driver.assetAction(v.id, action, { assetId, present, note: note || undefined }), action === 'return' ? 'Activo recogido.' : present ? 'Activo verificado.' : 'Faltante registrado.');
+  }
+  patchAudit(id: string, p: Partial<{ fronts: number; expected: number | null }>): void { this.auditLines.update((l) => l.map((x) => (x.productId === id ? { ...x, ...p } : x))); }
+  addAuditLine(): void { const p = this.products().find((x) => x.id === this.auditPick()); if (!p || this.auditLines().some((l) => l.productId === p.id)) return; this.auditLines.update((l) => [...l, { productId: p.id, name: p.name, fronts: 0, expected: null }]); this.auditPick.set(''); }
+  async saveAudit(): Promise<void> {
+    const v = this.visit(); if (!v) return;
+    await this.run(() => this.driver.displayAudit(v.id, { lines: this.auditLines().map((l) => ({ productId: l.productId, fronts: l.fronts, expectedFronts: l.expected ?? undefined })) }), 'Auditoría de exhibición guardada.');
   }
 
   patch(i: number, p: Partial<Line>): void { this.lines.update((ls) => ls.map((l, k) => (k === i ? { ...l, ...p } : l))); }
@@ -198,6 +239,7 @@ export class VisitPanelComponent {
     else if (!this.incident()) { this.error.set('Una entrega fallida requiere el motivo de la incidencia.'); return; }
     if (ls.some((l) => l.qtyDelivered > l.qtyPlanned)) { this.error.set('No puedes entregar más de lo pedido.'); return; }
     const body = { lines: ls.map((l) => ({ productId: l.productId, qtyPlanned: l.qtyPlanned, qtyDelivered: l.qtyDelivered, discountBp: Math.round(l.discountPct * 100), reason: l.reason.trim() || undefined })),
+      ...(this.fromOrder() && this.stop()?.order ? { orderId: this.stop()?.order?.id } : {}), ...(this.sale() ? { sale: true } : {}),
       ...(this.status() === 'FAILED' ? { incidentReason: this.incident() } : {}), notes: this.notes().trim() || undefined, ...(this.formEntrega().length ? { form: this.entregaValues(), formVersion: this.driver.config()?.version } : {}) };
     await this.run(() => this.driver.delivery(v.id, body), 'Entrega guardada.');
   }

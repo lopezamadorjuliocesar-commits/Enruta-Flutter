@@ -14,7 +14,8 @@
     "e2e:phase1": "node e2e/phase1.smoke.cjs",
     "migrate": "npm --prefix backend run migrate",
     "e2e:phase2": "node e2e/phase2.smoke.cjs",
-    "e2e:phase3": "node e2e/phase3.smoke.cjs"
+    "e2e:phase3": "node e2e/phase3.smoke.cjs",
+    "e2e:phase3b": "node e2e/phase3b.smoke.cjs"
   },
   "private": true,
   "dependencies": {
