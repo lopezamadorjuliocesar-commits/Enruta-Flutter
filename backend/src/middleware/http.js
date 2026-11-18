@@ -18,7 +18,7 @@ function tokenOf(req) {
 /** Anti-CSRF (DT-09): toda petición mutante debe llevar X-EnRuta-Client; un formulario de otro sitio no puede enviarlo sin preflight CORS. */
 function csrfGuard(req, _res, next) {
   if (SAFE.has(req.method)) return next();
-  if (req.path.startsWith('/mobile/') || /^Bearer\s+\S+/i.test(req.get('authorization') || '')) return next();   // contrato móvil / Bearer: no dependen de cookies
+  if (req.path === '/mobile/link' || req.path === '/mobile/v1/link' || /^Bearer\s+\S+/i.test(req.get('authorization') || '')) return next();   // contrato móvil / Bearer: no dependen de cookies
   const v = req.get('x-enruta-client');
   if (v !== 'web' && v !== 'mobile') return next(new HttpError(403, 'CSRF', 'Falta el encabezado X-EnRuta-Client.'));
   next();
@@ -38,7 +38,7 @@ function requireAuth(auth) {
   return wrap(async (req, _res, next) => {
     const { token, via } = tokenOf(req);
     // X-EnRuta-Background: consultas automáticas del navegador (p. ej. detectar cierres de sesión) que NO cuentan como actividad del usuario.
-    const ctx = await auth.authenticate(token, { touch: req.get('x-enruta-background') !== '1' });
+    const ctx = await auth.authenticate(token, { touch: req.get('x-enruta-background') !== '1' && req.path !== '/events' });
     ctx.ip = req.ip; req.ctx = ctx; req.authVia = via; next();
   });
 }

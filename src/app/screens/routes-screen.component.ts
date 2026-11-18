@@ -6,7 +6,7 @@ import type { EnrutaState } from '../core/enruta-state.service';
   selector: 'app-routes-screen',
   standalone: true,
   imports: [FormsModule],
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './routes-screen.component.html',
 })
 export class RoutesScreenComponent {

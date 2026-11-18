@@ -12,7 +12,8 @@
     "seed:reset": "npm --prefix backend run seed:reset",
     "test:backend": "npm --prefix backend test",
     "e2e:phase1": "node e2e/phase1.smoke.cjs",
-    "migrate": "npm --prefix backend run migrate"
+    "migrate": "npm --prefix backend run migrate",
+    "e2e:phase2": "node e2e/phase2.smoke.cjs"
   },
   "private": true,
   "dependencies": {

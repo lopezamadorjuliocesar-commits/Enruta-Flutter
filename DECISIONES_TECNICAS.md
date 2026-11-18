@@ -410,3 +410,30 @@ Puntos a corregir explícitamente: login/logout, validación RFC, CRUD, mapa, te
 3. El SSO corporativo no existe: el botón figura como «no disponible».
 4. Notificaciones del backend (bloqueos, etc.) aún no se muestran en la UI (la lista visible sigue siendo la temporal).
 5. Las preferencias de perfil y el logo/marca siguen locales (Fase 3).
+
+
+---
+
+## 7. Ajustes y hallazgos de la Fase 2 (prevalecen sobre las secciones 1–6)
+
+| Ref. | Ajuste | Motivo |
+|---|---|---|
+| DT-23 | Estados de ruta en BD: `DRAFT, PENDING_APPROVAL, PUBLISHED, IN_PROGRESS, COMPLETED, CANCELLED`. «Rechazada» no es un estado: es `DRAFT` con `last_decision='REJECTED'` (etiqueta propia). Cada transición queda en `route_status_history`. | Flujo simple y auditable. |
+| DT-24 | `routes.revision` sube con cualquier edición **relevante** (nombre, día, operador, vehículo, zona, paradas). El **color es cosmético** y no la sube. Editar una ruta pendiente o publicada la regresa a `DRAFT`, marca la solicitud/aprobación como `INVALIDATED`, borra `approved_revision`, notifica y audita. `PUT` exige `revision` (`REVISION_REQUIRED`); si no coincide → `409 REVISION_CONFLICT`. **Aprobar** exige la revisión exacta de la solicitud (`409 REVISION_MISMATCH`) y vuelve a validar. | Nadie aprueba ni ejecuta una versión que no vio. |
+| DT-25 | Validaciones al enviar **y** al aprobar: operador existente, activo, con `deliveries.execute` y asignado al centro de la ruta; ≥ 1 parada; clientes activos y con coordenadas. Las paradas deben ser del centro de la ruta. Se devuelven todos los `problems`. Autoaprobación permitida y marcada (`self_approved`, auditoría). | Coincide con el diseño original. |
+| DT-26 | QR = `PUBLIC_WEB_URL/repartidor/vincular#t=<token>`; el token va en el **fragmento** y la vista lo borra de la URL con `history.replaceState` al leerlo. El token es opaco, de un solo uso, 15 min, solo su hash en BD. | No queda en logs ni en `Referer`. |
+| DT-27 | **SSE implementado** (`GET /api/events`, `EventBus` en memoria con latidos). Eventos: `device.linked`, `device.revoked`, `route.updated` (filtrado por centro), `route.assigned`, `route.cancelled` (al operador), `session.revoked` (al usuario). El frontend reintenta solo; un 401 cierra el stream. Las conexiones SSE **no cuentan como actividad**. | Confirmación en vivo sin sondeo. |
+| DT-28 | `POST /api/devices/:id/revoke` revoca las credenciales del dispositivo, lo deja `Inactivo` y emite `device.revoked`. Un dispositivo con conductor asignado solo acepta a ese conductor (por correo): `DEVICE_DRIVER_MISMATCH`. | Revocación inmediata. |
+| DT-29 | **Vista de repartidor** (`/repartidor`, `/repartidor/vincular`, carga diferida, OnPush, una columna, objetivos táctiles ≥ 40 px). Contrato `/api/mobile/v1`: `link`, `me`, `routes`, `routes/:id/start`; todas menos `link` exigen sesión de usuario con `deliveries.execute` **y** `X-Device-Token` válido. Hoy: vincular, iniciar sesión, descargar la ruta publicada, ver paradas (llamar / cómo llegar) e **iniciar la ruta**. Visitas, entregas, cobros y evidencias **no se simulan**: llegan en la Fase 3. | Mismos endpoints que usará Flutter. |
+| DT-29b | La credencial del **dispositivo** (`X-Device-Token`) y un identificador de hardware se guardan en `localStorage` del teléfono (`enruta.driver.device`, `enruta.driver.serial`). Es la identidad del equipo, no de un usuario, y el servidor puede revocarla; por eso es la única excepción a «`localStorage` solo para preferencias». | Equivale al almacenamiento seguro de una app móvil. |
+| DT-09b | La exención CSRF se limita a `/mobile/link` y `/mobile/v1/link` (sin sesión). Los demás endpoints móviles con cookie exigen `X-EnRuta-Client`. | Cerrar un hueco que abría la exención por prefijo. |
+| DT-49 | **Estrategia final de detección de cambios: Zone.js + OnPush + estado en signals.** `makeReactive()` convierte los campos de `EnrutaState` (y de componentes con estado asíncrono) en accesores respaldados por signals sin cambiar su API; todas las pantallas, `AppComponent`, la frontera de errores y el mapa son OnPush. Los callbacks fuera de la zona (Mapbox) y los eventos SSE solo escriben signals / entran a la zona con `NgZone.run`. Se eliminaron `setTimeout`/`setInterval` (RxJS `timer`), `markForCheck` y `detectChanges`. Límite conocido: la mutación **en sitio** de objetos anidados no notifica; usar reemplazo inmutable. | Cierra la causa raíz documentada en §6. |
+| DT-50 | `EnrutaState` sigue como fachada para las 31 plantillas. Clientes, productos, rutas y aprobaciones se cargan del backend (`OperationsApi`) y se exponen como `SimpleRecord` con id numérico estable derivado del UUID; las mutaciones son llamadas al servidor seguidas de recarga. La importación CSV/XLSX se interpreta en el navegador y el servidor la **revalida** y aplica en una transacción. | Sin reescribir plantillas ni perder el diseño. |
+| DT-51 | Salieron del estado temporal: clientes, productos, rutas, aprobaciones, usuarios, roles, sesiones y dispositivos. Siguen temporales (por empresa y centro): precios/promociones/descuentos, formularios, parámetros, módulos, liquidaciones manuales, notificaciones visibles, marca y Carta Porte generada. | Se migran en la Fase 3. |
+
+### Pendientes conocidos tras la Fase 2
+1. `ScreenBoundary` sigue sin capturar errores de interacción en Angular 22 (prueba `xit`).
+2. Las rutas usan `day` (texto) y no fecha; no hay ventanas de embarque ni parámetros por herencia (Fase 3.C).
+3. El repartidor no registra visitas, entregas, cobros, evidencias ni GPS (Fase 3.A/3.B).
+4. El SSE vive en memoria de un solo proceso (una instancia).
+5. Bandeja de aprobaciones: filtros decorativos (`Todas`) sin función; sin motivo de rechazo en la UI (el servidor sí lo admite).

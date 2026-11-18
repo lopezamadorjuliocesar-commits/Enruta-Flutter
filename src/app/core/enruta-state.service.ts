@@ -1,9 +1,12 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Subscription, timer } from 'rxjs';
+import { Subject, Subscription, debounceTime, timer } from 'rxjs';
 import { ApiClient, ApiError, isCancelled } from './http/api-client';
 import { AdminStore, RoleDto, UserDto } from './admin.store';
 import { AuthService } from './auth.service';
 import { NetworkInfo } from './network.service';
+import { ClientDto, OperationsApi, ProductDto, RouteDto } from './operations.api';
+import { EventStream } from './events/event-stream.service';
+import { makeReactive } from './reactive';
 import { PermissionStore } from './rbac/permission.store';
 import { ScopeStore } from './session/scope.store';
 import { SessionStore } from './session/session.store';
@@ -48,13 +51,13 @@ export interface Account {
 export interface SimpleRecord {
   id: number; name: string; detail: string; status: string; code?: string; category?: string;
   lat?: number; lng?: number; phone?: string; email?: string; role?: string; operatorId?: number; day?: string;
-  color?: string; stopIds?: number[]; price?: number; refId?: number; uid?: string;
+  color?: string; stopIds?: number[]; price?: number; refId?: number; uid?: string; revision?: number; reason?: string;
   collected?: number; deposited?: number; date?: string;
 }
 
 @Injectable({ providedIn: 'root' })
 export class EnrutaState {
-  constructor() { this.init(); }
+  constructor() { makeReactive(this); this.init(); }
 
   readonly demoEmail = 'demo@enruta.mx';
   readonly demoPassword = 'Demo12345678';
@@ -334,7 +337,7 @@ export class EnrutaState {
    * (rutas, clientes del planeador, precios, formularios…) se guardan en este navegador, separados por
    * EMPRESA y CENTRO activos (IDs estables). Las cuentas, sesiones, usuarios, roles y permisos YA NO viven aquí.
    */
-  private static readonly OPERATIONAL_KEYS = ['parameterSets', 'settingsModules', 'deliveryFields', 'formsData', 'settlements', 'products', 'clients', 'routes', 'priceLists', 'promotions', 'discounts', 'devices', 'notifications', 'auditEvents', 'approvals', 'profilePreferences', 'brandColor', 'brandName', 'brandLogoDataUrl', 'brandLogoName', 'connectionState', 'messagingConfig', 'cartasPorte', 'cartaPorteDefaults', 'activeRouteId', 'pendingChanges', 'versions', 'selectedPlan'];
+  private static readonly OPERATIONAL_KEYS = ['parameterSets', 'settingsModules', 'deliveryFields', 'formsData', 'settlements', 'priceLists', 'promotions', 'discounts', 'devices', 'notifications', 'auditEvents', 'profilePreferences', 'brandColor', 'brandName', 'brandLogoDataUrl', 'brandLogoName', 'connectionState', 'messagingConfig', 'cartasPorte', 'cartaPorteDefaults', 'pendingChanges', 'versions', 'selectedPlan'];
   private get interimKey(): string | null {
     const i = this.session.info(); return i ? `enruta.interim.v1.${i.company.id}.${i.activeCenterId ?? 'todos'}` : null;
   }
@@ -347,8 +350,7 @@ export class EnrutaState {
     for (const k of EnrutaState.OPERATIONAL_KEYS) if (data[k] !== undefined) self[k] = data[k];
     this.normalizeIntegrations();
     this.applyBrand();
-    if (this.activeRouteId && !this.routes.some((route) => route.id === this.activeRouteId)) this.activeRouteId = null;
-    void this.refreshRoute();
+    void this.loadOperational();   // clientes, productos y rutas: fuente de verdad = backend
   }
 
   private persist(): void {
@@ -641,40 +643,12 @@ export class EnrutaState {
     if (!kind) return;
     if (!name) { this.fail('Escribe un nombre antes de guardar.'); return; }
     if (kind === 'usuario') { await this.saveUser(name); return; }
+    if (kind === 'producto' || kind === 'cliente' || kind === 'ruta') { await this.saveOperational(kind, name); return; }
     const list = this.listFor(kind);
     const existing = this.editingId !== null ? list.find((item) => item.id === this.editingId) : undefined;
     const rec: SimpleRecord = existing ? { ...existing } : { id: Date.now(), name, detail: '', status: 'Activo' };
     rec.name = name; rec.detail = this.draftDetail.trim(); rec.status = this.draftStatus || rec.status;
     switch (kind) {
-      case 'producto': {
-        rec.code = this.draftCode.trim(); rec.category = this.draftCategory.trim();
-        const price = this.draftPrice.trim() === '' ? undefined : Number(this.draftPrice);
-        if (price !== undefined && (!Number.isFinite(price) || price < 0)) { this.fail('El precio debe ser un número positivo.'); return; }
-        rec.price = price;
-        if (rec.code && this.products.some((p) => p.id !== rec.id && p.code === rec.code)) { this.fail('Ya existe un producto con esa clave.'); return; }
-        break;
-      }
-      case 'cliente': {
-        rec.phone = this.draftPhone.trim();
-        let lat = this.draftLat.trim() === '' ? NaN : Number(this.draftLat); let lng = this.draftLng.trim() === '' ? NaN : Number(this.draftLng);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-          const found = rec.detail ? await this.mapbox.geocode(rec.detail) : null;
-          if (found) { lat = found.lat; lng = found.lng; }
-        }
-        if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          if (Math.abs(lat) > 90 || Math.abs(lng) > 180) { this.fail('Coordenadas fuera de rango.'); return; }
-          rec.lat = lat; rec.lng = lng;
-        } else { rec.lat = undefined; rec.lng = undefined; }
-        break;
-      }
-      case 'ruta': {
-        rec.operatorId = this.draftOperator ? Number(this.draftOperator) : undefined; rec.day = this.draftDay; rec.color = this.draftColor;
-        rec.stopIds = rec.stopIds ?? [];
-        const operator = this.users.find((u) => u.id === rec.operatorId);
-        rec.detail = `${operator ? operator.name : 'Sin operador asignado'} · ${rec.day}`;
-        if (this.routes.some((r) => r.id !== rec.id && r.name.toLowerCase() === name.toLowerCase())) { this.fail('Ya existe una ruta con ese nombre.'); return; }
-        break;
-      }
       case 'liquidacion': {
         const route = this.routes.find((r) => r.id === Number(this.draftOperator));
         if (!route) { this.fail('Selecciona la ruta a liquidar.'); return; }
@@ -693,18 +667,14 @@ export class EnrutaState {
     this.setList(kind, existing ? list.map((item) => (item.id === rec.id ? rec : item)) : [...list, rec]);
     this.modalKind = ''; this.editingId = null;
     this.addAuditEvent(`${existing ? 'Editó' : 'Creó'} ${kind}: ${name}`);
-    if (kind === 'ruta' && this.activeRouteId === null) this.activeRouteId = rec.id;
-    if (this.activeClient?.id === rec.id) this.activeClient = rec;
-    if (kind === 'ruta' || kind === 'cliente') void this.refreshRoute();
     this.notify(`${this.kindLabel(kind)} ${existing ? 'actualizado' : 'creado'}.`);
   }
 
   deleteRecord(kind: RecordKind, record: SimpleRecord): void {
     if (kind === 'usuario') { this.notify('Los usuarios no se eliminan para conservar su historial: usa el botón ⏻ para desactivarlos.'); return; }
+    if (kind === 'producto' || kind === 'cliente' || kind === 'ruta') { void this.deleteOperational(kind, record); return; }
     if (typeof window !== 'undefined' && !window.confirm(`¿Eliminar ${this.kindLabel(kind).toLowerCase()} “${record.name}”? Esta acción no se puede deshacer.`)) return;
     this.setList(kind, this.listFor(kind).filter((item) => item.id !== record.id));
-    if (kind === 'cliente') { this.routes = this.routes.map((r) => ({ ...r, stopIds: (r.stopIds ?? []).filter((id) => id !== record.id) })); if (this.activeClient?.id === record.id) this.activeClient = null; }
-    if (kind === 'ruta') { this.approvals = this.approvals.filter((a) => a.refId !== record.id); if (this.activeRouteId === record.id) this.activeRouteId = this.routes[0]?.id ?? null; }
     if (kind === 'dispositivo' && this.selectedDevice?.id === record.id) this.selectedDevice = null;
     this.addAuditEvent(`Eliminó ${kind}: ${record.name}`);
     this.notify(`${this.kindLabel(kind)} eliminado.`);
@@ -713,6 +683,7 @@ export class EnrutaState {
 
   toggleStatus(kind: RecordKind, record: SimpleRecord): void {
     if (kind === 'usuario') { void this.toggleUser(record); return; }
+    if (kind === 'producto' || kind === 'cliente') { void this.toggleOperational(kind, record); return; }
     const next = record.status === 'Activo' ? 'Inactivo' : 'Activo';
     this.setList(kind, this.listFor(kind).map((item) => (item.id === record.id ? { ...item, status: next } : item)));
     if (this.selectedDevice?.id === record.id) this.selectedDevice = { ...record, status: next };
@@ -764,15 +735,122 @@ export class EnrutaState {
     this.addAuditEvent(`Sincronizó el dispositivo ${device.name}`); this.notify('Dispositivo sincronizado.');
   }
 
+  // ======================= Operación en el backend (clientes, productos, rutas, aprobaciones) =======================
+  opsLoading = false;
+
+  private clientRecord(c: ClientDto): SimpleRecord {
+    return { id: this.stableId(c.id), uid: c.id, name: c.name, detail: c.address ?? '', status: c.status === 'ACTIVE' ? 'Activo' : 'Inactivo', phone: c.phone ?? undefined, code: c.code ?? undefined, lat: c.lat ?? undefined, lng: c.lng ?? undefined };
+  }
+  private productRecord(p: ProductDto): SimpleRecord {
+    return { id: this.stableId(p.id), uid: p.id, name: p.name, detail: p.description ?? '', status: p.status === 'ACTIVE' ? 'Activo' : 'Inactivo', code: p.sku, category: p.category ?? undefined, price: p.price ?? undefined };
+  }
+  private routeRecord(r: RouteDto): SimpleRecord {
+    return { id: this.stableId(r.id), uid: r.id, name: r.name, detail: `${r.operatorName ?? 'Sin operador asignado'} · ${r.day ?? ''}`, status: r.statusLabel, day: r.day ?? undefined, color: r.color ?? undefined,
+      operatorId: r.operatorId ? this.stableId(r.operatorId) : undefined, stopIds: r.stopIds.map((id) => this.stableId(id)), revision: r.revision, reason: r.lastDecisionReason ?? undefined };
+  }
+  private clientUid(alias: number): string | undefined { return this.clients.find((c) => c.id === alias)?.uid; }
+  private userUid(alias: number): string | undefined { return this.admin.users().find((u) => this.stableId(u.id) === alias)?.id; }
+
+  async loadOperational(): Promise<void> {
+    if (!this.session.authenticated() || (typeof location !== 'undefined' && location.pathname.startsWith('/repartidor'))) return;   // la vista de repartidor usa su propio contrato
+    this.opsLoading = true;
+    try {
+      const can = (code: string) => this.perms.can(code);
+      const [clients, products, routes] = await Promise.all([can('clients.read') ? this.ops.clients() : [], can('catalog.read') ? this.ops.products() : [], can('routes.read') ? this.ops.routes() : []]);
+      this.clients = clients.map((c) => this.clientRecord(c)); this.products = products.map((p) => this.productRecord(p)); this.setRoutes(routes);
+    } catch (e) { if (!isCancelled(e)) this.fail(this.session.errorMessage(e, 'No se pudieron cargar los datos operativos.')); }
+    finally { this.opsLoading = false; }
+  }
+  async loadRoutes(): Promise<void> {
+    if (!this.perms.can('routes.read')) return;
+    try { this.setRoutes(await this.ops.routes()); } catch (e) { if (!isCancelled(e)) this.fail(this.session.errorMessage(e, 'No se pudieron actualizar las rutas.')); }
+  }
+  private setRoutes(routes: RouteDto[]): void {
+    this.routes = routes.map((r) => this.routeRecord(r));
+    this.approvals = routes.filter((r) => r.status === 'PENDING_APPROVAL').map((r) => ({
+      id: this.stableId(r.id) + 1, uid: r.id, refId: this.stableId(r.id), revision: r.approval?.revision ?? r.revision, name: `Publicar ruta ${r.name}`,
+      detail: `${r.stopIds.length} paradas · ${r.operatorName ?? 'Sin operador'} · ${r.day ?? ''} · revisión ${r.approval?.revision ?? r.revision}`, status: 'Pendiente' }));
+    if (this.activeRouteId && !this.routes.some((route) => route.id === this.activeRouteId)) this.activeRouteId = null;
+    void this.refreshRoute();
+  }
+  /** Ejecuta una acción de ruta en el servidor y recarga. Los errores del servidor (revisión, validaciones, permisos) se muestran tal cual. */
+  private async routeAction(job: () => Promise<RouteDto>, ok?: string): Promise<RouteDto | null> {
+    try {
+      const before = this.activeRoute;
+      const dto = await job(); await this.loadRoutes();
+      if (before && ['Pendiente de aprobación', 'Publicada'].includes(before.status) && dto.status === 'DRAFT' && dto.id === before.uid) this.notify(`La ruta volvió a Borrador (revisión ${dto.revision}): la aprobación anterior se invalidó y debe aprobarse de nuevo.`);
+      else if (ok) this.notify(ok);
+      return dto;
+    } catch (e) {
+      if (isCancelled(e)) return null;
+      const body = (e instanceof ApiError ? e.body : null) as { problems?: string[] } | null;
+      this.fail(body?.problems?.length ? body.problems.join(' ') : this.session.errorMessage(e, 'No se pudo completar la acción.'));
+      if (e instanceof ApiError && ['REVISION_CONFLICT', 'REVISION_MISMATCH', 'ROUTE_STATE', 'ROUTE_LOCKED'].includes(e.code)) void this.loadRoutes();
+      return null;
+    }
+  }
+
+  private async saveOperational(kind: 'producto' | 'cliente' | 'ruta', name: string): Promise<void> {
+    const existing = this.editingId !== null ? this.listFor(kind).find((item) => item.id === this.editingId) : undefined;
+    const active = (this.draftStatus || 'Activo') === 'Activo' ? 'ACTIVE' : 'INACTIVE';
+    try {
+      if (kind === 'producto') {
+        const price = this.draftPrice.trim() === '' ? null : Number(this.draftPrice);
+        if (price !== null && (!Number.isFinite(price) || price < 0)) { this.fail('El precio debe ser un número positivo.'); return; }
+        const body = { name, sku: this.draftCode.trim() || undefined, category: this.draftCategory.trim() || null, description: this.draftDetail.trim() || null, price, status: active };
+        if (existing?.uid) await this.ops.updateProduct(existing.uid, body); else await this.ops.createProduct(body);
+      } else if (kind === 'cliente') {
+        let lat = this.draftLat.trim() === '' ? NaN : Number(this.draftLat); let lng = this.draftLng.trim() === '' ? NaN : Number(this.draftLng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) { const found = this.draftDetail.trim() ? await this.mapbox.geocode(this.draftDetail.trim()) : null; if (found) { lat = found.lat; lng = found.lng; } }
+        const located = Number.isFinite(lat) && Number.isFinite(lng);
+        if (located && (Math.abs(lat) > 90 || Math.abs(lng) > 180)) { this.fail('Coordenadas fuera de rango.'); return; }
+        const body = { name, address: this.draftDetail.trim() || null, phone: this.draftPhone.trim() || null, lat: located ? lat : null, lng: located ? lng : null, status: active };
+        if (existing?.uid) await this.ops.updateClient(existing.uid, body); else await this.ops.createClient(body);
+      } else {
+        const operatorId = this.draftOperator ? this.userUid(Number(this.draftOperator)) ?? null : null;
+        const body = { name, day: this.draftDay, color: this.draftColor, operatorId };
+        const saved = existing?.uid ? await this.routeAction(() => this.ops.updateRoute(existing.uid!, existing.revision ?? 1, body), 'Ruta actualizada.') : await this.routeAction(() => this.ops.createRoute({ ...body, centerId: this.session.info()?.activeCenterId ?? undefined }), 'Ruta creada.');
+        if (!saved) return;
+        if (!existing && this.activeRouteId === null) this.activeRouteId = this.stableId(saved.id);
+        this.modalKind = ''; this.editingId = null; return;
+      }
+      await this.loadOperational(); this.modalKind = ''; this.editingId = null;
+      this.notify(`${this.kindLabel(kind)} ${existing ? 'actualizado' : 'creado'}.`);
+    } catch (e) { if (!isCancelled(e)) this.fail(this.session.errorMessage(e, `No se pudo guardar el ${this.kindLabel(kind).toLowerCase()}.`)); }
+  }
+
+  private async deleteOperational(kind: 'producto' | 'cliente' | 'ruta', record: SimpleRecord): Promise<void> {
+    if (!record.uid) return;
+    if (typeof window !== 'undefined' && !window.confirm(`¿Eliminar ${this.kindLabel(kind).toLowerCase()} “${record.name}”? Esta acción no se puede deshacer.`)) return;
+    try {
+      if (kind === 'producto') await this.ops.deleteProduct(record.uid); else if (kind === 'cliente') await this.ops.deleteClient(record.uid); else await this.ops.deleteRoute(record.uid);
+      if (this.activeClient?.id === record.id) this.activeClient = null;
+      await this.loadOperational(); this.notify(`${this.kindLabel(kind)} eliminado.`);
+    } catch (e) { if (!isCancelled(e)) this.fail(this.session.errorMessage(e, 'No se pudo eliminar.')); }
+  }
+
+  private async toggleOperational(kind: 'producto' | 'cliente', record: SimpleRecord): Promise<void> {
+    if (!record.uid) return;
+    const next = record.status === 'Activo' ? 'INACTIVE' : 'ACTIVE';
+    try {
+      if (kind === 'producto') await this.ops.updateProduct(record.uid, { status: next }); else await this.ops.updateClient(record.uid, { status: next });
+      await this.loadOperational();
+      if (this.activeClient?.id === record.id) this.activeClient = this.clients.find((c) => c.id === record.id) ?? null;
+      this.notify(`${record.name}: ${next === 'ACTIVE' ? 'activo' : 'inactivo'}.`);
+    } catch (e) { if (!isCancelled(e)) this.fail(this.session.errorMessage(e, 'No se pudo cambiar el estado.')); }
+  }
+
   // ======================= Clientes y ubicación =======================
   setClientLocation(point: { lat: number; lng: number }, client: SimpleRecord | null = this.activeClient): void {
-    if (!client) return;
-    const updated = { ...client, lat: point.lat, lng: point.lng };
-    this.clients = this.clients.map((c) => (c.id === client.id ? updated : c));
-    if (this.activeClient?.id === client.id) this.activeClient = updated;
-    this.addAuditEvent(`Actualizó la ubicación de ${client.name}`);
-    this.notify('Ubicación del cliente guardada.'); this.persist();
-    void this.refreshRoute();
+    if (!client?.uid) return;
+    void (async () => {
+      try {
+        const saved = await this.ops.updateClient(client.uid!, { lat: point.lat, lng: point.lng });
+        const rec = this.clientRecord(saved); this.clients = this.clients.map((c) => (c.id === rec.id ? rec : c));
+        if (this.activeClient?.id === rec.id) this.activeClient = rec;
+        this.notify('Ubicación del cliente guardada.'); void this.refreshRoute();
+      } catch (e) { if (!isCancelled(e)) this.fail(this.session.errorMessage(e, 'No se pudo guardar la ubicación.')); }
+    })();
   }
 
   async geocodeClient(client: SimpleRecord): Promise<void> {
@@ -832,7 +910,7 @@ export class EnrutaState {
       id: number; label: string; lat: number; lng: number; color: string; order: number;
       role: 'start' | 'stop' | 'destination'; detail: string; status: string;
     }[] = [];
-    for (const route of this.routes.filter((r) => r.status !== 'Inactiva')) {
+    for (const route of this.routes.filter((r) => r.status !== 'Cancelada')) {
       const stops = this.stopsOf(route);
       stops.forEach((stop, index) => {
         if (stop.lat === undefined || stop.lng === undefined) return;
@@ -853,7 +931,7 @@ export class EnrutaState {
   }
 
   get overviewLines(): { color: string; coords: number[][] }[] {
-    return this.routes.filter((route) => route.status !== 'Inactiva').flatMap((route) => {
+    return this.routes.filter((route) => route.status !== 'Cancelada').flatMap((route) => {
       const geometry = this.overviewGeometries.get(route.id);
       return geometry?.coords.length
         ? [{ color: '#4f35d5', coords: geometry.coords }]
@@ -862,7 +940,7 @@ export class EnrutaState {
   }
 
   async refreshOverviewRoutes(): Promise<void> {
-    const activeRoutes = this.routes.filter((route) => route.status !== 'Inactiva');
+    const activeRoutes = this.routes.filter((route) => route.status !== 'Cancelada');
     const activeRouteIds = new Set(activeRoutes.map((route) => route.id));
     for (const id of this.overviewGeometries.keys()) {
       if (!activeRouteIds.has(id)) this.overviewGeometries.delete(id);
@@ -886,7 +964,7 @@ export class EnrutaState {
       const result = await this.mapbox.directions(points);
       if (this.pendingOverviewRoutes.get(route.id) === signature) this.pendingOverviewRoutes.delete(route.id);
 
-      const currentRoute = this.routes.find((item) => item.id === route.id && item.status !== 'Inactiva');
+      const currentRoute = this.routes.find((item) => item.id === route.id && item.status !== 'Cancelada');
       const currentPoints = currentRoute
         ? this.stopsOf(currentRoute)
           .filter((stop) => stop.lat !== undefined && stop.lng !== undefined)
@@ -907,9 +985,8 @@ export class EnrutaState {
   openRoute(route: SimpleRecord): void { this.selectRoute(route.id); this.navigate('planner'); }
 
   duplicateRoute(route: SimpleRecord): void {
-    const copy: SimpleRecord = { ...route, id: Date.now(), name: `${route.name} (copia)`, status: 'Borrador', stopIds: [...(route.stopIds ?? [])] };
-    this.routes = [...this.routes, copy];
-    this.addAuditEvent(`Duplicó la ruta ${route.name}`); this.notify('Ruta duplicada como borrador.');
+    if (!route.uid) return;
+    void this.routeAction(() => this.ops.duplicateRoute(route.uid!), 'Ruta duplicada como borrador.');
   }
 
   async refreshRoute(): Promise<void> {
@@ -922,18 +999,18 @@ export class EnrutaState {
     this.routeMetrics = { distanceKm: result.distanceKm, durationMin: result.durationMin, geometry: result.geometry, estimated: result.estimated, loading: false };
   }
 
+  /** Guarda las paradas en el servidor con la revisión que ve la pantalla: editar una ruta pendiente o publicada invalida su aprobación. */
   private updateActiveStops(ids: number[]): void {
-    const route = this.activeRoute; if (!route) return;
-    this.routes = this.routes.map((r) => (r.id === route.id ? { ...r, stopIds: ids, status: r.status === 'Publicada' ? 'Borrador' : r.status } : r));
-    this.persist();
-    void this.refreshRoute();
+    const route = this.activeRoute; if (!route?.uid) return;
+    const clientIds = ids.map((id) => this.clientUid(id)).filter((id): id is string => !!id);
+    void this.routeAction(() => this.ops.setStops(route.uid!, route.revision ?? 1, clientIds));
   }
 
   addRouteStop(client: SimpleRecord): void {
     const route = this.activeRoute;
     if (!route) { this.fail('Selecciona o crea una ruta antes de agregar paradas.'); return; }
     if ((route.stopIds ?? []).includes(client.id)) { this.fail('Este cliente ya está en la ruta.'); return; }
-    if (client.lat === undefined) this.notify(`${client.name} no tiene ubicación; agrégalo y ubícalo en Clientes para verlo en el mapa.`);
+    if (client.lat === undefined) this.notify(`${client.name} no tiene ubicación; ubícalo en Clientes para verlo en el mapa y poder publicar la ruta.`);
     this.updateActiveStops([...(route.stopIds ?? []), client.id]);
   }
 
@@ -956,42 +1033,36 @@ export class EnrutaState {
     const sorted = order.map((i) => located[i].id);
     const unlocated = stops.filter((s) => s.lat === undefined).map((s) => s.id);
     this.updateActiveStops([...sorted, ...unlocated]);
-    this.addAuditEvent(`Optimizó la secuencia de ${route.name}`); this.notify('Secuencia optimizada con Mapbox.');
   }
 
   saveRouteDraft(): void {
-    if (!this.activeRoute) { this.fail('No hay una ruta seleccionada.'); return; }
-    this.addAuditEvent(`Guardó el borrador de ${this.activeRoute.name} con ${this.routeStops.length} paradas`);
-    this.notify('Borrador de ruta guardado.');
+    const route = this.activeRoute;
+    if (!route) { this.fail('No hay una ruta seleccionada.'); return; }
+    this.notify(`Los cambios de ${route.name} ya están guardados en el servidor (revisión ${route.revision ?? 1}).`);
   }
 
   submitRoute(): void {
     const route = this.activeRoute;
-    if (!route) { this.fail('Crea o selecciona una ruta para publicarla.'); return; }
-    if (!route.operatorId) { this.fail('Asigna un operador a la ruta (editar ruta) antes de publicar.'); return; }
-    if (!this.routeStops.length) { this.fail('Agrega clientes a la ruta desde el planeador antes de publicarla.'); return; }
+    if (!route?.uid) { this.fail('Crea o selecciona una ruta para publicarla.'); return; }
     if (route.status === 'Pendiente de aprobación') { this.fail('Esta ruta ya está esperando aprobación.'); return; }
-    this.routes = this.routes.map((r) => (r.id === route.id ? { ...r, status: 'Pendiente de aprobación' } : r));
-    this.approvals = [...this.approvals, { id: Date.now(), name: `Publicar ruta ${route.name}`, detail: `${this.routeStops.length} paradas · ${route.detail}`, status: 'Pendiente', refId: route.id }];
-    this.addNotification('Aprobación pendiente', `La ruta ${route.name} espera autorización.`, 'Aprobaciones');
-    this.addAuditEvent(`Solicitó publicar la ruta ${route.name} (${this.routeStops.length} paradas)`);
-    this.notify('Ruta enviada a aprobación.');
+    void this.routeAction(() => this.ops.submitRoute(route.uid!, route.revision ?? 1), 'Ruta enviada a aprobación.');
   }
 
+  /** Aprueba la versión EXACTA que se mostró en la bandeja: si la ruta cambió, el servidor responde 409. */
   approve(item: SimpleRecord): void {
-    this.approvals = this.approvals.filter((a) => a.id !== item.id);
-    if (item.refId) this.routes = this.routes.map((r) => (r.id === item.refId ? { ...r, status: 'Publicada' } : r));
-    this.addAuditEvent(`Aprobó: ${item.name}`); this.notify('Solicitud aprobada.');
+    const route = this.routes.find((r) => r.id === item.refId);
+    if (!route?.uid) { this.fail('La ruta ya no existe.'); return; }
+    void this.routeAction(() => this.ops.approveRoute(route.uid!, item.revision ?? route.revision ?? 1), 'Ruta aprobada y publicada.');
   }
 
   reject(item: SimpleRecord): void {
-    this.approvals = this.approvals.filter((a) => a.id !== item.id);
-    if (item.refId) this.routes = this.routes.map((r) => (r.id === item.refId ? { ...r, status: 'Borrador' } : r));
-    this.addAuditEvent(`Rechazó: ${item.name}`); this.notify('Solicitud rechazada.');
+    const route = this.routes.find((r) => r.id === item.refId);
+    if (!route?.uid) { this.fail('La ruta ya no existe.'); return; }
+    void this.routeAction(() => this.ops.rejectRoute(route.uid!, item.revision ?? route.revision ?? 1, 'Rechazada desde la bandeja de aprobaciones'), 'Ruta rechazada: volvió a Borrador.');
   }
 
   get routeStatusCounts(): { published: number; pending: number; draft: number } {
-    return { published: this.routes.filter((r) => r.status === 'Publicada').length, pending: this.routes.filter((r) => r.status === 'Pendiente de aprobación').length, draft: this.routes.filter((r) => r.status === 'Borrador').length };
+    return { published: this.routes.filter((r) => r.status === 'Publicada' || r.status === 'En ejecución').length, pending: this.routes.filter((r) => r.status === 'Pendiente de aprobación').length, draft: this.routes.filter((r) => r.status === 'Borrador').length };
   }
 
   get totalStops(): number { return this.routes.reduce((sum, r) => sum + (r.stopIds?.length ?? 0), 0); }
@@ -1105,7 +1176,7 @@ export class EnrutaState {
   private init(): void {
     this.purgeLegacyStorage();
     this.scope.onReset((reason) => this.onScopeReset(reason));
-    if (this.session.authenticated()) { this.loadCompanyData(); void this.admin.loadAdmin(); this.startPolling(); }
+    if (this.session.authenticated()) { this.loadCompanyData(); void this.admin.loadAdmin(); this.startPolling(); this.startEvents(); }
   }
 
   /** Borra lo que versiones anteriores guardaban en el navegador (cuentas, hashes, sesiones, datos por nombre de empresa). */
@@ -1121,18 +1192,34 @@ export class EnrutaState {
     this.admin.reset();
     if (this.session.authenticated()) {
       this.loadCompanyData(); void this.admin.loadAdmin();
-      if (reason === 'login') this.startPolling();
+      if (reason === 'login') { this.startPolling(); this.startEvents(); }
       return;
     }
-    this.stopPolling(); this.resetOperationalState();
+    this.stopPolling(); this.stopEvents(); this.resetOperationalState();
     this.view = 'dashboard'; this.password = ''; this.mfaChallengeId = ''; this.verificationCode = ''; this.toast = ''; this.selectedRoleId = ''; this.editedPermissions = new Set();
     this.authView = reason === 'expired' ? 'expired' : 'login';
   }
 
   /** El backend revoca sesiones al instante; este sondeo (que NO cuenta como actividad) hace visible el cierre aunque la pantalla esté quieta. */
+  private readonly ops = inject(OperationsApi);
+  private readonly events = inject(EventStream);
+  private eventsSub: Subscription | null = null;
+  private readonly routesDirty = new Subject<void>();
+
+  /** Tiempo real (SSE): rutas cambiadas por otros usuarios, sesión revocada, etc. Sin sondeo ni recargas. */
+  private startEvents(): void {
+    this.stopEvents(); this.events.connect();
+    this.eventsSub = this.events.events$.subscribe((e) => {
+      if (e.type === 'route.updated' || e.type === 'route.assigned' || e.type === 'route.cancelled') this.routesDirty.next();
+      else if (e.type === 'session.revoked') void this.session.refresh().catch(() => undefined);   // si fue revocada, el interceptor cierra la sesión (401)
+    });
+    this.eventsSub.add(this.routesDirty.pipe(debounceTime(250)).subscribe(() => void this.loadRoutes()));
+  }
+  private stopEvents(): void { this.eventsSub?.unsubscribe(); this.eventsSub = null; this.events.disconnect(); }
+
   private startPolling(): void {
     this.stopPolling();
-    this.pollSub = timer(30_000, 30_000).subscribe(() => { void this.api.get('/session', { keepAlive: true, headers: { 'X-EnRuta-Background': '1' } }).catch(() => undefined); });
+    this.pollSub = timer(60_000, 60_000).subscribe(() => { void this.api.get('/session', { keepAlive: true, headers: { 'X-EnRuta-Background': '1' } }).catch(() => undefined); });
   }
   private stopPolling(): void { this.pollSub?.unsubscribe(); this.pollSub = null; }
 
@@ -1222,10 +1309,11 @@ export class EnrutaState {
   announce(message: string): void { this.notify(message); }
   private notify(message: string): void { this.toastKind = 'ok'; this.showMessage(message); }
 
+  private toastSub: Subscription | null = null;
   private showMessage(message: string): void {
     this.toast = message;
-    this.persist();
-    if (message && typeof window !== 'undefined') window.setTimeout(() => { if (this.toast === message) this.toast = ''; }, message.length > 90 ? 9000 : 4500);
+    this.toastSub?.unsubscribe(); this.toastSub = null;
+    if (message) this.toastSub = timer(message.length > 90 ? 9000 : 4500).subscribe(() => { if (this.toast === message) this.toast = ''; });
   }
 
   // ---- seguridad: bloqueo, sesiones, inactividad ----
@@ -1364,27 +1452,25 @@ export class EnrutaState {
     return this.clients.find((c) => c.name.toLowerCase() === rec.name.toLowerCase() && (c.detail || '').toLowerCase() === (rec.detail || '').toLowerCase());
   }
 
-  submitImport(): void {
+  /** El archivo se interpreta en el navegador; el servidor lo valida de nuevo y lo aplica en una sola transacción. */
+  async submitImport(): Promise<void> {
+    if (this.importBusy) return;
     if (this.uploadCompleted) { this.fail('Este archivo ya se importó.'); return; }
     if (!this.uploadName || !this.pendingImported.length) { this.fail('Carga un archivo con al menos un registro válido antes de continuar.'); return; }
-    const target = this.importTarget === 'clientes' ? [...this.clients] : [...this.products];
-    let created = 0; let updated = 0; let skipped = 0;
-    for (const rec of this.pendingImported) {
-      const existing = this.findExisting(rec);
-      if (existing) {
-        if (this.importMode === 'actualizar') {
-          const i = target.findIndex((t) => t.id === existing.id);
-          target[i] = { ...existing, ...Object.fromEntries(Object.entries({ ...rec, id: existing.id }).filter(([, v]) => v !== undefined && v !== '')) } as SimpleRecord; updated += 1;
-        } else skipped += 1;
-      } else { target.push(rec); created += 1; }
-    }
-    if (this.importTarget === 'clientes') this.clients = target; else this.products = target;
-    this.importStats = { created, updated, skipped, duplicates: this.importStats.duplicates };
-    this.addAuditEvent(`Importó ${this.importTarget} desde ${this.uploadName}: ${created} nuevos, ${updated} actualizados, ${skipped} omitidos`);
-    this.notify(`Importación completada: ${created} nuevos, ${updated} actualizados, ${skipped} omitidos.`);
-    this.pendingImported = []; this.uploadCompleted = true;
-    this.navigate(this.importTarget === 'clientes' ? 'clients' : 'products');
-    void this.refreshRoute();
+    this.importBusy = true;
+    try {
+      const target = this.importTarget;
+      const res = target === 'clientes'
+        ? await this.ops.importClients(this.pendingImported.map((r) => ({ name: r.name, code: r.code, address: r.detail, phone: r.phone, lat: r.lat ?? null, lng: r.lng ?? null })), this.importMode)
+        : await this.ops.importProducts(this.pendingImported.map((r) => ({ name: r.name, code: r.code, category: r.category, price: r.price ?? null, description: r.detail })), this.importMode);
+      this.importStats = { created: res.created, updated: res.updated, skipped: res.skipped, duplicates: this.importStats.duplicates };
+      const bad = res.invalid.length ? ` ${res.invalid.length} fila(s) rechazadas por el servidor.` : '';
+      this.pendingImported = []; this.uploadCompleted = true;
+      await this.loadOperational();
+      this.notify(`Importación completada: ${res.created} nuevos, ${res.updated} actualizados, ${res.skipped} omitidos.${bad}`);
+      this.navigate(target === 'clientes' ? 'clients' : 'products');
+    } catch (e) { if (!isCancelled(e)) this.fail(this.session.errorMessage(e, 'No se pudo importar el archivo.')); }
+    finally { this.importBusy = false; }
   }
 
   downloadImportTemplate(format: TemplateFormat = 'csv'): void { this.downloadTemplate(this.importTarget, format); }

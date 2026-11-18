@@ -54,16 +54,22 @@ Está rotulada «MODO LOCAL». Con `MAIL_MODE=smtp` la bandeja no existe.
 
 ## 5. Red local / QR desde el teléfono
 
+Backend y web escuchan en `0.0.0.0` (puertos 3000 y 4200): cualquier equipo de tu red puede alcanzarlos por tu IP.
+
 1. Averigua la IP de tu equipo (el backend la lista en `GET /api/system/network`, p. ej. `192.168.1.50`).
 2. En `backend/.env`:
    ```
    PUBLIC_WEB_URL=http://192.168.1.50:4200
    PUBLIC_API_URL=http://192.168.1.50:3000
    ```
-3. Reinicia el backend. Si esas URLs apuntan a `localhost`, el arranque y la pantalla **Dispositivos** muestran una advertencia: el teléfono no podría alcanzarlas.
+3. Reinicia el backend. Si esas URLs apuntan a `localhost`, el arranque, `GET /api/system/network` y el panel **Dispositivos** (aviso «Red local» y el diálogo del QR) muestran una advertencia: el teléfono no podría abrir el QR.
 4. Permite los puertos 3000 y 4200 en el firewall y conecta el móvil a la misma red.
 
-El QR contiene `{ v:1, api: <PUBLIC_API_URL>, token }` (token de 15 min y un solo uso). La app móvil confirma con `POST /api/mobile/link`.
+**Flujo:** *Dispositivos → Vincular dispositivo QR* muestra un QR con `http://<IP>:4200/repartidor/vincular#t=<token>` (un solo uso, 15 min). Al escanearlo con la cámara, el teléfono abre la vista de repartidor, se registra como dispositivo y **el panel lo confirma al instante** (SSE). Después el repartidor inicia sesión y ve su ruta. *Desvincular* corta su acceso de inmediato.
+Para la app Flutter, la respuesta de `POST /api/devices/link-qr` incluye también `apiUrl` y `token` (formato histórico `{ v:1, api, token }`).
+
+### Vista de repartidor
+`/repartidor` (móvil, una columna): sin dispositivo vinculado muestra las instrucciones; con él pide correo y contraseña de un usuario con permiso de **Repartidor**, descarga las rutas que le asignaron y estén **Publicadas**, muestra sus paradas (llamar, cómo llegar) y permite **iniciar la ruta**. Visitas, entregas, cobros y evidencias llegan en la Fase 3 y la vista **no los simula**.
 
 ## 6. Modos simulados (honestidad operativa)
 
@@ -82,22 +88,29 @@ Una empresa registrada con validación simulada queda con `fiscal_status=SIMULAT
 ## 8. Pruebas
 
 ```bash
-npm run test:backend                         # 106 pruebas node:test
+npm run test:backend                         # 131 pruebas node:test
 npm test                                     # Karma (CHROME_BIN=/ruta/a/chrome si no está en el PATH)
 npm run seed:reset && npm run start:backend  # y en otra terminal: npm start
-npm run e2e:phase1                           # humo E2E con Playwright
+npm run e2e:phase1                           # humo E2E (Fase 1, 12 pasos) con Playwright
+npm run e2e:phase2                           # humo E2E (Fase 2, 15 pasos: rutas, QR, móvil, tiempo real)
 ```
 
 ## 9. Contrato REST para el móvil (Flutter)
 
-No hay proyecto Flutter en este repositorio. Disponible hoy:
-- `POST /api/mobile/link` (también `/api/mobile/v1/link`) — cuerpo `{ token, model, os, osVersion, brand?, serial?, fcmToken? }` → `{ ok, deviceToken, device, driver, vehicle }`. Sin cookies ni `X-EnRuta-Client`.
-- Autenticación de usuario repartidor: `POST /api/auth/login` con el encabezado `X-EnRuta-Client: mobile` devuelve `token` en el cuerpo; envíalo como `Authorization: Bearer <token>`.
-- El resto del contrato (ruta del día, visitas, entregas, evidencias, cobros, GPS) llega en las Fases 2 y 3.
+No hay proyecto Flutter en este repositorio. Contrato `/api/mobile/v1` disponible (lo consume la vista web de repartidor):
+- `POST /api/mobile/v1/link` (también `/api/mobile/link`) — `{ token, model, os, osVersion, brand?, serial?, fcmToken? }` → `{ ok, deviceToken, device, driver, vehicle }`. Sin cookies ni `X-EnRuta-Client`.
+- Autenticación de usuario: `POST /api/auth/login` con `X-EnRuta-Client: mobile` devuelve `token` en el cuerpo → `Authorization: Bearer <token>`.
+- Con sesión **y** `X-Device-Token: <deviceToken>`:
+  - `GET /api/mobile/v1/me` — usuario, empresa y dispositivo.
+  - `GET /api/mobile/v1/routes` — rutas **Publicadas** o **En ejecución** asignadas al usuario, con sus paradas (`seq`, nombre, dirección, teléfono, lat/lng).
+  - `POST /api/mobile/v1/routes/:id/start` — inicia la ruta (idempotente; solo la versión aprobada).
+- Errores de dispositivo: `403 DEVICE_REQUIRED`, `401 DEVICE_REVOKED`, `403 DEVICE_BLOCKED`, `403 DEVICE_DRIVER_MISMATCH`.
+- Tiempo real: `GET /api/events` (SSE).
+- Visitas, entregas, cobros, evidencias y GPS llegan en la Fase 3.
 
 ## 10. Producción (resumen)
 Define `NODE_ENV=production`, `DATA_ENCRYPTION_KEY`, `MAIL_MODE=smtp`, `COOKIE_SECURE=true` y sirve web y API bajo el mismo dominio HTTPS (proxy inverso). La migración a PostgreSQL está en DECISIONES_TECNICAS.md §4.
 
 ## 11. Migración desde la versión anterior
 Las cuentas, contraseñas y datos que la versión anterior guardaba en `localStorage` **no se importan** (hashes incompatibles y datos no verificables). Al primer arranque el navegador los elimina.
-Mientras las Fases 2–3 no migren cada módulo, los datos operativos de rutas, clientes del planeador, precios, formularios, etc. se guardan **temporalmente en este navegador**, separados por empresa y centro (`enruta.interim.v1.<empresaId>.<centroId>`).
+Clientes, productos, rutas, aprobaciones, usuarios, roles y dispositivos ya viven en el backend. Mientras la Fase 3 no migre el resto, los datos de precios, formularios, parámetros, liquidaciones manuales, marca, etc. se guardan **temporalmente en este navegador**, separados por empresa y centro (`enruta.interim.v1.<empresaId>.<centroId>`).

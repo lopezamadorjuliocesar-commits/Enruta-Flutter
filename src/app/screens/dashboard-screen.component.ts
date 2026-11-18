@@ -8,7 +8,7 @@ import type { EnrutaState } from '../core/enruta-state.service';
   selector: 'app-dashboard-screen',
   standalone: true,
   imports: [FormsModule, RouteMapComponent],
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './dashboard-screen.component.html',
 })
 export class DashboardScreenComponent implements OnInit {

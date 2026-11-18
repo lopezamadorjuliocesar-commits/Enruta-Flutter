@@ -14,10 +14,12 @@ const { passwordResetEmail } = require('./mail.templates');
 const GENERIC_LOGIN = 'Correo o contraseña incorrectos, o cuenta bloqueada temporalmente.';
 const REASONS = { MISSING: 'Falta el token.', INVALID: 'El enlace no es válido.', EXPIRED: 'El enlace expiró.', USED: 'El enlace ya fue utilizado.' };
 
-function createAuthService({ config, store, queue, adapters, clock }) {
+function createAuthService({ config, store, queue, adapters, clock, bus }) {
   const audit = makeAudit(clock);
   const nowDate = () => new Date(clock());
   const nowIso = () => iso(nowDate());
+  /** Avisa por SSE a los navegadores del usuario: vuelven a validar su sesión y cierran si fue revocada. */
+  const notifyRevoked = (companyId, userId, reason) => { bus?.publish({ companyId, userId, type: 'session.revoked', data: { reason } }); };
   let dummyHash = null;
   const hashPassword = (pw) => bcrypt.hash(pw, config.bcryptCost);
   const comparePassword = async (pw, hash) => bcrypt.compare(String(pw ?? ''), hash || (dummyHash ??= bcrypt.hashSync(randomToken(12), config.bcryptCost)));
@@ -213,11 +215,12 @@ function createAuthService({ config, store, queue, adapters, clock }) {
       const s = await r.sessions.get(id);
       if (!s || s.user_id !== ctx.userId) throw notFound('Sesión no encontrada.');
       await r.sessions.revoke(id, 'REVOKED_BY_USER', nowIso()); await audit(r, ctx, 'auth.session_revoked', { entity: 'session', entityId: id });
+      notifyRevoked(ctx.companyId, ctx.userId, 'REVOKED_BY_USER');
       return { current: id === ctx.sessionId };
     });
   }
   async function revokeOtherSessions(ctx) {
-    return store.tx(async (r) => { const n = await r.sessions.revokeAllForUser(ctx.userId, 'REVOKED_BY_USER', ctx.sessionId, nowIso()); await audit(r, ctx, 'auth.sessions_revoked_others', { detail: { count: n } }); return { revoked: n }; });
+    return store.tx(async (r) => { const n = await r.sessions.revokeAllForUser(ctx.userId, 'REVOKED_BY_USER', ctx.sessionId, nowIso()); await audit(r, ctx, 'auth.sessions_revoked_others', { detail: { count: n } }); notifyRevoked(ctx.companyId, ctx.userId, 'REVOKED_BY_USER'); return { revoked: n }; });
   }
 
   // ---------- recuperación de contraseña ----------
@@ -269,6 +272,7 @@ function createAuthService({ config, store, queue, adapters, clock }) {
       await r.users.setPassword(res.user.id, passwordHash);
       const n = await r.sessions.revokeAllForUser(res.user.id, 'PASSWORD_RESET', null, nowIso());
       await audit(r, { companyId: res.user.company_id, userId: res.user.id, name: res.user.name, ip: meta.ip }, 'auth.password_reset', { entity: 'user', entityId: res.user.id, detail: { sessionsRevoked: n } });
+      notifyRevoked(res.user.company_id, res.user.id, 'PASSWORD_RESET');
       return { ok: true, email: res.user.email, message: 'Contraseña restablecida con éxito. Inicia sesión.' };
     });
   }
@@ -300,6 +304,7 @@ function createAuthService({ config, store, queue, adapters, clock }) {
       await r.users.setPassword(ctx.userId, hash);
       const n = await r.sessions.revokeAllForUser(ctx.userId, 'PASSWORD_CHANGED', ctx.sessionId, nowIso());
       await audit(r, ctx, 'auth.password_changed', { entity: 'user', entityId: ctx.userId, detail: { sessionsRevoked: n } });
+      notifyRevoked(ctx.companyId, ctx.userId, 'PASSWORD_CHANGED');
       return { ok: true, sessionsRevoked: n };
     });
   }

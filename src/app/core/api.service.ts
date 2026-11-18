@@ -9,7 +9,7 @@ export interface ApiDevice {
   driver_id: string | null; vehicle_id: string | null; status: DeviceStatus; driver_name: string | null; vehicle_plate: string | null;
   fcm_token: string | null; reported_model: string | null; reported_os: string | null; linked_at: string | null; created_at: string;
 }
-export interface LinkToken { token: string; jti: string; expiresAt: string; ttlSeconds: number; apiUrl?: string; }
+export interface LinkToken { token: string; jti: string; expiresAt: string; ttlSeconds: number; apiUrl?: string; linkUrl?: string; }
 
 export type CartaPorteFiscalStatus = 'EnCola' | 'Procesando' | 'Timbrado' | 'Simulado' | 'Error';
 export interface CartaPorteFiscalDocument {
@@ -52,6 +52,7 @@ export class ApiService {
   linkQrStatus(jti: string): Promise<{ status: 'pending' | 'linked' | 'expired'; device?: ApiDevice | null }> { return this.request('GET', `/api/devices/link-qr/${jti}`); }
   updateDevice(id: string, d: Partial<ApiDevice>): Promise<ApiDevice> { return this.request('PUT', `/api/devices/${id}`, d); }
   deleteDevice(id: string): Promise<void> { return this.request('DELETE', `/api/devices/${id}`); }
+  revokeDevice(id: string): Promise<{ id: string; alias: string; revoked: number }> { return this.request('POST', `/api/devices/${id}/revoke`); }
   linkToken(id: string): Promise<LinkToken> { return this.request('POST', `/api/devices/${id}/link-token`); }
 
   submitCartaPorte(folio: string, idCcp: string, data: unknown, xml: string): Promise<{ document: CartaPorteFiscalDocument; queued: boolean }> {

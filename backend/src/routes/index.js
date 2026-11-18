@@ -6,8 +6,8 @@ const { badRequest, notFound, unprocessable } = require('../utils/errors');
 const { detectImage } = require('../storage/file-store');
 const h = require('../middleware/http');
 
-module.exports = function createRoutes({ config, store, queue, services, adapters, files, clock }) {
-  const { auth, admin, catalog, fiscal, fleet } = services;
+module.exports = function createRoutes({ config, store, queue, services, adapters, files, clock, bus }) {
+  const { auth, admin, catalog, fiscal, fleet, routes } = services;
   const router = express.Router();
   const { wrap, meta, requirePermission: need, requireAnyPermission: needAny } = h;
   const authed = h.requireAuth(auth);
@@ -133,7 +133,42 @@ module.exports = function createRoutes({ config, store, queue, services, adapter
   router.put('/clients/:id', need('clients.write'), wrap(async (req, res) => res.json(await catalog.clients.update(req.ctx, req.params.id, req.body || {}))));
   router.get('/products', need('catalog.read'), wrap(async (req, res) => res.json(await catalog.products.list(req.ctx, req.query))));
   router.post('/products', need('catalog.write'), wrap(async (req, res) => res.status(201).json(await catalog.products.create(req.ctx, req.body || {}))));
+  router.delete('/clients/:id', need('clients.write'), wrap(async (req, res) => res.json(await catalog.clients.remove(req.ctx, req.params.id))));
+  router.delete('/products/:id', need('catalog.write'), wrap(async (req, res) => res.json(await catalog.products.remove(req.ctx, req.params.id))));
+  router.post('/import/clients', need('import.run', 'clients.write'), wrap(async (req, res) => res.json(await catalog.importer.clients(req.ctx, req.body || {}))));
+  router.post('/import/products', need('import.run', 'catalog.write'), wrap(async (req, res) => res.json(await catalog.importer.products(req.ctx, req.body || {}))));
   router.put('/products/:id', need('catalog.write'), wrap(async (req, res) => res.json(await catalog.products.update(req.ctx, req.params.id, req.body || {}))));
+
+  // Rutas: ciclo con revisiones (la aprobación valida la versión exacta)
+  router.get('/routes', need('routes.read'), wrap(async (req, res) => res.json(await routes.list(req.ctx))));
+  router.post('/routes', need('routes.write'), wrap(async (req, res) => res.status(201).json(await routes.create(req.ctx, req.body || {}))));
+  router.get('/routes/:id', need('routes.read'), wrap(async (req, res) => res.json(await routes.get(req.ctx, req.params.id))));
+  router.put('/routes/:id', need('routes.write'), wrap(async (req, res) => res.json(await routes.update(req.ctx, req.params.id, req.body || {}))));
+  router.put('/routes/:id/stops', need('routes.write'), wrap(async (req, res) => res.json(await routes.setStops(req.ctx, req.params.id, req.body || {}))));
+  router.post('/routes/:id/duplicate', need('routes.write'), wrap(async (req, res) => res.status(201).json(await routes.duplicate(req.ctx, req.params.id))));
+  router.post('/routes/:id/submit', need('routes.submit'), wrap(async (req, res) => res.json(await routes.submit(req.ctx, req.params.id, req.body || {}))));
+  router.post('/routes/:id/approve', need('routes.approve'), wrap(async (req, res) => res.json(await routes.approve(req.ctx, req.params.id, req.body || {}))));
+  router.post('/routes/:id/reject', need('routes.approve'), wrap(async (req, res) => res.json(await routes.reject(req.ctx, req.params.id, req.body || {}))));
+  router.post('/routes/:id/cancel', need('routes.cancel'), wrap(async (req, res) => res.json(await routes.cancel(req.ctx, req.params.id, req.body || {}))));
+  router.delete('/routes/:id', need('routes.write'), wrap(async (req, res) => res.json(await routes.remove(req.ctx, req.params.id))));
+  router.get('/approvals', need('routes.approve'), wrap(async (req, res) => res.json(await routes.approvals(req.ctx))));
+
+  // Tiempo real (SSE): el navegador se entera de QR vinculados, revocaciones, cambios de rutas y cierres de sesión sin sondear
+  router.get('/events', (req, res) => {
+    const scope = { companyId: req.ctx.companyId, userId: req.ctx.userId, centerIds: req.ctx.can('centers.all') ? 'all' : new Set(req.ctx.accessibleCenterIds) };
+    bus.subscribe(res, scope);
+  });
+
+  // Contrato móvil v1 (repartidor): requiere sesión de usuario + credencial de dispositivo vinculado (X-Device-Token)
+  const deviceGuard = wrap(async (req, _res, next) => {
+    const d = await fleet.deviceFromToken(req.get('x-device-token'));
+    if (d.companyId !== req.ctx.companyId) throw new (require('../utils/errors').HttpError)(403, 'DEVICE_REQUIRED', 'Este dispositivo pertenece a otra empresa.');
+    if (d.driverEmail && d.driverEmail !== req.ctx.email.toLowerCase()) throw new (require('../utils/errors').HttpError)(403, 'DEVICE_DRIVER_MISMATCH', `Este dispositivo está asignado a ${d.driverName}.`);
+    req.device = d; next();
+  });
+  router.get('/mobile/v1/me', need('deliveries.execute'), deviceGuard, (req, res) => res.json({ user: { id: req.ctx.userId, name: req.ctx.name, email: req.ctx.email, role: req.ctx.roleName }, company: { id: req.ctx.companyId, name: req.ctx.company.legal_name }, device: { id: req.device.id, alias: req.device.alias, vehiclePlate: req.device.vehiclePlate } }));
+  router.get('/mobile/v1/routes', need('deliveries.execute'), deviceGuard, wrap(async (req, res) => res.json(await routes.assignedTo(req.ctx))));
+  router.post('/mobile/v1/routes/:id/start', need('deliveries.execute'), deviceGuard, wrap(async (req, res) => res.json(await routes.start(req.ctx, req.params.id))));
 
   // Auditoría y notificaciones
   router.get('/audit', need('audit.read'), wrap(async (req, res) => res.json(await admin.audits.list(req.ctx, req.query))));
@@ -165,6 +200,7 @@ module.exports = function createRoutes({ config, store, queue, services, adapter
   router.post('/devices', dev, wrap(async (req, res) => res.status(201).json(await fleet.devices.create(req.ctx, req.body || {}))));
   router.put('/devices/:id', dev, wrap(async (req, res) => res.json(await fleet.devices.update(req.ctx, req.params.id, req.body || {}))));
   router.delete('/devices/:id', dev, wrap(async (req, res) => { await fleet.devices.remove(req.ctx, req.params.id); res.status(204).end(); }));
+  router.post('/devices/:id/revoke', dev, wrap(async (req, res) => res.json(await fleet.devices.revoke(req.ctx, req.params.id))));
   router.post('/devices/:id/link-token', dev, wrap(async (req, res) => res.json(await fleet.devices.linkToken(req.ctx, req.params.id))));
 
   // Estado de la cola de la empresa

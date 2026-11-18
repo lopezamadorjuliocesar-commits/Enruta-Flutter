@@ -11,7 +11,7 @@ const userDto = (u, centerIds, now = Date.now()) => ({ id: u.id, name: u.name, e
   totpEnabled: !!u.totp_enabled, lastLoginAt: u.last_login_at, createdAt: u.created_at, locked: !!(u.locked_until && Date.parse(u.locked_until) > now) });
 const roleDto = (r, permissions) => ({ id: r.id, name: r.name, description: r.description, isSystem: !!r.is_system, maxDiscountBp: r.max_discount_bp, userCount: r.user_count ?? undefined, permissions });
 
-function createAdminService({ store, clock, auth }) {
+function createAdminService({ store, clock, auth, bus }) {
   const audit = makeAudit(clock);
   const nowIso = () => iso(new Date(clock()));
 
@@ -64,7 +64,7 @@ function createAdminService({ store, clock, auth }) {
         await r.users.update(ctx.companyId, id, { name, phone, email, role_id: roleId, default_center_id: b.defaultCenterId });
         if (centerIds) await r.users.setCenters(id, centerIds);
         if (hash) { await r.users.setPassword(id, hash); await r.sessions.revokeAllForUser(id, 'PASSWORD_CHANGED_BY_ADMIN', null, nowIso()); }
-        if (roleId) { await ensureAdminsRemain(r, ctx); await r.sessions.revokeAllForUser(id, 'ROLE_CHANGED', id === ctx.userId ? ctx.sessionId : null, nowIso()); }
+        if (roleId) { await ensureAdminsRemain(r, ctx); await r.sessions.revokeAllForUser(id, 'ROLE_CHANGED', id === ctx.userId ? ctx.sessionId : null, nowIso()); bus?.publish({ companyId: ctx.companyId, userId: id, type: 'session.revoked', data: { reason: 'ROLE_CHANGED' } }); }
         await audit(r, ctx, 'user.updated', { entity: 'user', entityId: id, detail: { roleChanged: !!roleId, centersChanged: !!centerIds, passwordChanged: !!hash } });
         const fresh = (await r.users.list(ctx.companyId)).find((x) => x.id === id);
         return userDto(fresh, await r.users.centerIds(id), clock());
@@ -80,6 +80,7 @@ function createAdminService({ store, clock, auth }) {
         let revoked = 0;
         if (status === 'INACTIVE') { revoked = await r.sessions.revokeAllForUser(id, 'USER_INACTIVE', null, nowIso()); await ensureAdminsRemain(r, ctx); }
         await audit(r, ctx, status === 'INACTIVE' ? 'user.deactivated' : 'user.activated', { entity: 'user', entityId: id, detail: { sessionsRevoked: revoked } });
+        if (revoked) bus?.publish({ companyId: ctx.companyId, userId: id, type: 'session.revoked', data: { reason: 'USER_INACTIVE' } });
         return { id, status, sessionsRevoked: revoked };
       });
     },

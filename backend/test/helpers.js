@@ -83,4 +83,34 @@ async function createUser(app, admin, { role = 'Repartidor', email, name = 'Usua
   return { client: c, user: res.body, session: l.body.session, email, password };
 }
 
-module.exports = { startApp, registerCompany, createUser, makeClock, Client, PASSWORD, silent };
+/** Abre /api/events (SSE) y acumula los eventos recibidos. */
+async function openStream(app, client) {
+  const ac = new AbortController();
+  const res = await fetch(app.baseUrl + '/api/events', { headers: { Authorization: `Bearer ${client.token}` }, signal: ac.signal });
+  const events = []; const waiters = []; let buf = '';
+  if (res.status === 200) {
+    (async () => {
+      const dec = new TextDecoder();
+      try {
+        for await (const chunk of res.body) {
+          buf += dec.decode(chunk, { stream: true }); let i;
+          while ((i = buf.indexOf('\n\n')) >= 0) {
+            const frame = buf.slice(0, i); buf = buf.slice(i + 2); const m = frame.match(/^event: (.+)\ndata: (.+)$/m);
+            if (m) { const ev = JSON.parse(m[2]); events.push(ev); for (const w of [...waiters]) if (w.type === ev.type && (!w.pred || w.pred(ev))) { waiters.splice(waiters.indexOf(w), 1); w.resolve(ev); } }
+          }
+        }
+      } catch { /* abortado */ }
+    })();
+  } else await res.body?.cancel();
+  return {
+    status: res.status, events,
+    waitFor(type, pred, ms = 2500) {
+      const found = events.find((e) => e.type === type && (!pred || pred(e))); if (found) return Promise.resolve(found);
+      return new Promise((resolve, reject) => { const w = { type, pred, resolve }; waiters.push(w); setTimeout(() => { const i = waiters.indexOf(w); if (i >= 0) { waiters.splice(i, 1); reject(new Error(`no llegó el evento ${type}`)); } }, ms); });
+    },
+    async quiet(ms = 150) { await new Promise((r) => setTimeout(r, ms)); return events.length; },
+    close() { ac.abort(); },
+  };
+}
+
+module.exports = { openStream, startApp, registerCompany, createUser, makeClock, Client, PASSWORD, silent };

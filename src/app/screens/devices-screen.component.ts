@@ -1,10 +1,14 @@
 import { DatePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, Input, NgZone, OnDestroy, OnInit, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, Input, OnDestroy, OnInit, inject } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subscription, timer } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { QRCodeComponent } from 'angularx-qrcode';
 import { NetworkInfo } from '../core/network.service';
 import { ApiDevice, ApiDriver, ApiError, ApiService, ApiVehicle, DeviceStatus, LinkToken } from '../core/api.service';
 import { ValidateFormDirective } from '../core/validate-form.directive';
+import { EventStream } from '../core/events/event-stream.service';
+import { makeReactive } from '../core/reactive';
 import type { EnrutaState } from '../core/enruta-state.service';
 
 interface DeviceForm {
@@ -17,17 +21,16 @@ const emptyForm = (): DeviceForm => ({ alias: '', imei_serial: '', brand: '', mo
 @Component({
   selector: 'app-devices-screen',
   standalone: true,
-  // Transitorio (Fase 2.A): Angular 22 usa OnPush por defecto y estas pantallas leen campos simples de EnrutaState.
-  // Se migran a signals + OnPush pantalla por pantalla; mientras tanto se actualizan en cada turno de la zona.
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, DatePipe, QRCodeComponent, ValidateFormDirective],
   templateUrl: './devices-screen.component.html',
 })
 export class DevicesScreenComponent implements OnInit, OnDestroy {
   @Input({ required: true }) app!: EnrutaState;
   private readonly api = inject(ApiService);
-  private readonly zone = inject(NgZone);
-  protected readonly network = inject(NetworkInfo);
+  readonly network = inject(NetworkInfo);
+  private readonly events = inject(EventStream);
+  private readonly destroyRef = inject(DestroyRef);
 
   devices: ApiDevice[] = []; drivers: ApiDriver[] = []; vehicles: ApiVehicle[] = [];
   loading = true; loadError = '';
@@ -41,12 +44,29 @@ export class DevicesScreenComponent implements OnInit, OnDestroy {
   qr: LinkToken | null = null; qrPayload = ''; secondsLeft = 0; qrLoading = false; linkedNotice = false;
   // ---- Vincular dispositivo con QR (sin configuración previa) ----
   linkDialogOpen = false; linkQr: LinkToken | null = null; linkPayload = ''; linkSeconds = 0; linkLoading = false; linkError = '';
-  private linkTimer: ReturnType<typeof setInterval> | null = null; private linkPoll: ReturnType<typeof setInterval> | null = null;
-  private timer: ReturnType<typeof setInterval> | null = null;
-  private poll: ReturnType<typeof setInterval> | null = null;
+  private qrTimers: Subscription | null = null; private linkTimers: Subscription | null = null;
 
-  ngOnInit(): void { void this.load(); }
-  ngOnDestroy(): void { this.stopQr(); this.closeLinkQr(); }
+  // Todo lo que cambia tras un `await`, un temporizador o un evento SSE es un signal (vista OnPush, sin detectChanges ni setInterval).
+  constructor() { makeReactive(this, ['devices', 'drivers', 'vehicles', 'loading', 'loadError', 'search', 'statusFilter', 'selected', 'dialogOpen', 'editingId', 'form', 'saving', 'newDriver', 'newVehicle', 'addingDriver', 'addingVehicle', 'qr', 'qrPayload', 'secondsLeft', 'qrLoading', 'linkedNotice', 'linkDialogOpen', 'linkQr', 'linkPayload', 'linkSeconds', 'linkLoading', 'linkError', 'showJson']); }
+  showJson = false;
+
+  ngOnInit(): void {
+    void this.load();
+    // Confirmación en tiempo real: el panel se entera en el instante en que el móvil escanea el QR o un dispositivo se revoca.
+    this.events.on('device.linked', 'device.revoked').pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => this.onDeviceEvent(e));
+  }
+  ngOnDestroy(): void { this.stopQr(); this.stopLinkTimers(); }
+
+  private async onDeviceEvent(e: { type: string; [k: string]: unknown }): Promise<void> {
+    await this.load();
+    if (e.type === 'device.linked') {
+      const mine = this.linkQr?.jti === e['jti'] || (this.qr && this.selected?.id === e['deviceId']);
+      if (!mine) return;
+      const device = this.devices.find((d) => d.id === e['deviceId']);
+      if (device) this.selected = device;
+      this.stopQr(); this.closeLinkQr(); this.linkedNotice = true; this.app.showToast('Dispositivo vinculado correctamente.');
+    } else if (e.type === 'device.revoked') this.app.showToast(`Dispositivo “${String(e['alias'] ?? '')}” desvinculado.`);
+  }
 
   get filtered(): ApiDevice[] {
     const q = this.search.trim().toLowerCase();
@@ -140,29 +160,22 @@ export class DevicesScreenComponent implements OnInit, OnDestroy {
     const token = await this.guard(() => this.api.createLinkQr());
     this.linkLoading = false;
     if (!token) { this.linkError = 'No se pudo generar el código QR. Intenta de nuevo.'; return; }
-    this.linkQr = token; this.linkPayload = JSON.stringify({ v: 1, api: token.apiUrl || this.network.state().publicApiUrl, token: token.token });
-    const tick = () => { this.linkSeconds = Math.max(0, Math.round((new Date(token.expiresAt).getTime() - Date.now()) / 1000)); if (!this.linkSeconds) this.stopLinkTimers(); };
-    tick(); this.linkTimer = setInterval(tick, 1000);
-    this.linkPoll = setInterval(async () => {
+    this.linkQr = token; this.linkPayload = token.linkUrl ?? JSON.stringify({ v: 1, api: token.apiUrl || this.network.state().publicApiUrl, token: token.token });
+    const expires = new Date(token.expiresAt).getTime();
+    // Cuenta regresiva y, solo como respaldo si el SSE no llega, consulta del estado cada 5 s.
+    this.linkTimers = timer(0, 1000).subscribe(() => { this.linkSeconds = Math.max(0, Math.round((expires - Date.now()) / 1000)); if (!this.linkSeconds) this.stopLinkTimers(); });
+    this.linkTimers.add(timer(5000, 5000).subscribe(async () => {
       try {
         const r = await this.api.linkQrStatus(token.jti);
-        if (r.status === 'linked' && r.device) {
-          const device = r.device;
-          this.zone.run(() => {
-            this.devices = [device, ...this.devices.filter((d) => d.id !== device.id)];
-            this.selected = device; this.stopQr(); this.linkedNotice = true;
-            this.app.addAuditEvent(`Vinculó el dispositivo ${device.alias} con código QR`);
-            this.app.showToast('Dispositivo vinculado correctamente.');
-            this.closeLinkQr();
-          });
-        } else if (r.status === 'expired') this.zone.run(() => { this.linkSeconds = 0; this.stopLinkTimers(); });
+        if (r.status === 'linked' && r.device) { const device = r.device; await this.load(); this.selected = this.devices.find((d) => d.id === device.id) ?? device; this.stopLinkTimers(); this.closeLinkQr(); this.linkedNotice = true; this.app.showToast('Dispositivo vinculado correctamente.'); }
+        else if (r.status === 'expired') { this.linkSeconds = 0; this.stopLinkTimers(); }
       } catch { /* reintenta en el siguiente ciclo */ }
-    }, 2000);
+    }));
   }
 
   get linkCountdown(): string { return `${String(Math.floor(this.linkSeconds / 60)).padStart(2, '0')}:${String(this.linkSeconds % 60).padStart(2, '0')}`; }
   get linkExpired(): boolean { return !!this.linkQr && this.linkSeconds === 0; }
-  private stopLinkTimers(): void { if (this.linkTimer) clearInterval(this.linkTimer); if (this.linkPoll) clearInterval(this.linkPoll); this.linkTimer = null; this.linkPoll = null; }
+  private stopLinkTimers(): void { this.linkTimers?.unsubscribe(); this.linkTimers = null; }
   closeLinkQr(): void { this.stopLinkTimers(); this.linkDialogOpen = false; this.linkQr = null; this.linkPayload = ''; }
 
   // ---- QR ----
@@ -174,27 +187,27 @@ export class DevicesScreenComponent implements OnInit, OnDestroy {
     this.qrLoading = false;
     if (!token) return;
     this.qr = token;
-    this.qrPayload = JSON.stringify({ v: 1, api: token.apiUrl || this.network.state().publicApiUrl, token: token.token });
-    const tick = () => { this.secondsLeft = Math.max(0, Math.round((new Date(token.expiresAt).getTime() - Date.now()) / 1000)); if (!this.secondsLeft) this.stopTimers(); };
-    tick();
-    this.timer = setInterval(tick, 1000);
-    const baseline = d.linked_at;
-    this.poll = setInterval(async () => {
+    this.qrPayload = token.linkUrl ?? JSON.stringify({ v: 1, api: token.apiUrl || this.network.state().publicApiUrl, token: token.token });
+    const expires = new Date(token.expiresAt).getTime(); const baseline = d.linked_at;
+    this.qrTimers = timer(0, 1000).subscribe(() => { this.secondsLeft = Math.max(0, Math.round((expires - Date.now()) / 1000)); if (!this.secondsLeft) this.stopTimers(); });
+    this.qrTimers.add(timer(5000, 5000).subscribe(async () => {
       try {
         const fresh = await this.api.device(d.id);
-        if (fresh.linked_at && fresh.linked_at !== baseline) {
-          this.zone.run(() => {
-            this.devices = this.devices.map((x) => (x.id === fresh.id ? fresh : x)); this.selected = fresh;
-            this.linkedNotice = true; this.stopQr(); this.app.showToast('Dispositivo vinculado correctamente.');
-          });
-        }
+        if (fresh.linked_at && fresh.linked_at !== baseline) { this.devices = this.devices.map((x) => (x.id === fresh.id ? fresh : x)); this.selected = fresh; this.linkedNotice = true; this.stopQr(); this.app.showToast('Dispositivo vinculado correctamente.'); }
       } catch { /* reintenta en el siguiente ciclo */ }
-    }, 3000);
+    }));
   }
 
   get countdown(): string { return `${String(Math.floor(this.secondsLeft / 60)).padStart(2, '0')}:${String(this.secondsLeft % 60).padStart(2, '0')}`; }
   get qrExpired(): boolean { return !!this.qr && this.secondsLeft === 0; }
 
-  private stopTimers(): void { if (this.timer) clearInterval(this.timer); if (this.poll) clearInterval(this.poll); this.timer = null; this.poll = null; }
+  private stopTimers(): void { this.qrTimers?.unsubscribe(); this.qrTimers = null; }
+  /** Revoca la credencial del dispositivo: la app deja de operar de inmediato. */
+  async revoke(d: ApiDevice): Promise<void> {
+    if (typeof window !== 'undefined' && !window.confirm(`¿Desvincular “${d.alias}”? Dejará de poder operar de inmediato.`)) return;
+    const out = await this.guard(() => this.api.revokeDevice(d.id)); if (!out) return;
+    await this.load(); this.app.showToast(out.revoked ? 'Dispositivo desvinculado. Su acceso se cortó.' : 'El dispositivo estaba inactivo; no tenía credenciales activas.');
+  }
+
   stopQr(): void { this.stopTimers(); this.qr = null; this.qrPayload = ''; this.secondsLeft = 0; }
 }

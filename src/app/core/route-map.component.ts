@@ -1,5 +1,6 @@
 import { isPlatformBrowser } from '@angular/common';
-import { AfterViewInit, ChangeDetectorRef, Component, DoCheck, ElementRef, EventEmitter, Input, NgZone, OnDestroy, Output, PLATFORM_ID, ViewChild, inject } from '@angular/core';
+import { AfterViewInit, ChangeDetectionStrategy, Component, DoCheck, ElementRef, EventEmitter, Input, NgZone, OnDestroy, Output, PLATFORM_ID, ViewChild, inject, signal } from '@angular/core';
+import { timer } from 'rxjs';
 import { NetworkInfo } from './network.service';
 import { EnrutaState } from './enruta-state.service';
 
@@ -22,7 +23,8 @@ export interface MapLine { color: string; coords: number[][]; }
 @Component({
   selector: 'app-route-map',
   standalone: true,
-  template: `<div class="route-map-wrap" [style.height.px]="height"><div class="route-map" #host></div>@if (status) { <div class="route-map-status">{{ status }}</div> }</div>`,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<div class="route-map-wrap" [style.height.px]="height"><div class="route-map" #host></div>@if (status()) { <div class="route-map-status">{{ status() }}</div> }</div>`,
 })
 export class RouteMapComponent implements AfterViewInit, DoCheck, OnDestroy {
   @Input() markers: MapMarker[] = [];
@@ -32,10 +34,10 @@ export class RouteMapComponent implements AfterViewInit, DoCheck, OnDestroy {
   @Output() picked = new EventEmitter<{ lat: number; lng: number }>();
   @ViewChild('host', { static: true }) host!: ElementRef<HTMLDivElement>;
 
-  status = 'Cargando mapa…';
+  /** Signal: los callbacks de Mapbox (fuera de la zona) escriben aquí y la vista OnPush se repinta sola. */
+  readonly status = signal('Cargando mapa…');
   private readonly zone = inject(NgZone);
   private readonly network = inject(NetworkInfo);
-  private readonly changeDetector = inject(ChangeDetectorRef);
   private readonly platform = inject(PLATFORM_ID);
   private readonly appState = inject(EnrutaState);
   @Input() locate = true;
@@ -46,7 +48,7 @@ export class RouteMapComponent implements AfterViewInit, DoCheck, OnDestroy {
 
   async ngAfterViewInit(): Promise<void> {
     if (!isPlatformBrowser(this.platform)) return;
-    if (!this.network.state().mapboxToken) { this.status = 'Mapa no disponible: el servidor no entregó un token de Mapbox (MAPBOX_PUBLIC_TOKEN).'; this.changeDetector.markForCheck(); return; }
+    if (!this.network.state().mapboxToken) { this.status.set('Mapa no disponible: el servidor no entregó un token de Mapbox (MAPBOX_PUBLIC_TOKEN).'); return; }
     try {
       const mod: any = await import('mapbox-gl/dist/mapbox-gl-csp');
       this.gl = mod.default ?? mod;
@@ -70,29 +72,22 @@ export class RouteMapComponent implements AfterViewInit, DoCheck, OnDestroy {
           this.map.addLayer({ id: 'lines-casing', type: 'line', source: 'lines', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 9, 'line-opacity': .82 } });
           this.map.addLayer({ id: 'lines', type: 'line', source: 'lines', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': 5, 'line-opacity': .96 } });
           this.loaded = true;
-          this.zone.run(() => {
-            this.status = '';
-            this.changeDetector.markForCheck();
-          });
+          this.status.set('');
           this.map.resize();
           this.draw();
-          if (this.locate && 'geolocation' in navigator) setTimeout(() => this.geolocate?.trigger(), 400);
+          if (this.locate && 'geolocation' in navigator) timer(400).subscribe(() => this.geolocate?.trigger());
         });
         this.map.on('click', (event: any) => {
           if (this.pick) this.zone.run(() => this.picked.emit({ lat: event.lngLat.lat, lng: event.lngLat.lng }));
         });
         this.map.on('error', (event: any) => {
-          if (!this.loaded) this.zone.run(() => {
-            this.status = 'No se pudo cargar el mapa. Revisa tu conexión.';
-            this.changeDetector.markForCheck();
-          });
+          if (!this.loaded) this.status.set('No se pudo cargar el mapa. Revisa tu conexión.');
           console.warn('Mapbox:', event?.error?.message ?? event);
         });
       });
     } catch (error) {
       console.error(error);
-      this.status = 'No se pudo cargar el mapa.';
-      this.changeDetector.markForCheck();
+      this.status.set('No se pudo cargar el mapa.');
     }
   }
 

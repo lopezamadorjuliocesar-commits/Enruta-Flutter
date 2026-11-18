@@ -1,5 +1,5 @@
 import { ValidateFormDirective } from './core/validate-form.directive';
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
 import { FormsModule } from '@angular/forms';
@@ -39,9 +39,7 @@ import { ContextScreenComponent } from './screens/context-screen.component';
 @Component({
   selector: 'app-root',
   standalone: true,
-  // Transitorio (Fase 2.A): Angular 22 usa OnPush por defecto y estas pantallas leen campos simples de EnrutaState.
-  // Se migran a signals + OnPush pantalla por pantalla; mientras tanto se actualizan en cada turno de la zona.
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, ScreenBoundaryComponent, ValidateFormDirective, RouterOutlet],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
@@ -51,10 +49,13 @@ export class AppComponent {
   private readonly router = inject(Router);
   /** Ruta activa de recuperación de contraseña ('forgot-password' | 'reset-password') o ''. */
   routedAuth = '';
+  /** `/repartidor/**`: vista móvil a pantalla completa, sin el marco del panel. */
+  readonly driverMode = signal(typeof location !== 'undefined' && location.pathname.startsWith('/repartidor'));
 
   constructor() {
     this.router.events.pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd)).subscribe((e) => {
       const path = e.urlAfterRedirects.split(/[?#]/)[0].replace(/^\/+|\/+$/g, '');
+      this.driverMode.set(path === 'repartidor' || path.startsWith('repartidor/'));
       this.routedAuth = path === 'forgot-password' || path === 'reset-password' ? path : path === 'dev/correo' ? 'dev-mailbox' : '';
       if (path === 'login' && !this.state.authenticated) this.state.authView = 'login';
     });

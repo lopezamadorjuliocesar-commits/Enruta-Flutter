@@ -1,3 +1,4 @@
+@if (driverMode()) { <router-outlet /> } @else {
 @if (state.network.backendDown()) { <div class="toast-message toast-error" role="alert" style="position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:50"><p>No se pudo conectar con el servidor EnRuta. Inicia el backend (<code>npm run start:backend</code>) y recarga la página.</p></div> }
 @if (!state.authenticated || routedAuth) {
   <div class="auth-shell">
@@ -119,7 +120,7 @@
         @switch (state.modalKind) {
           @case ('ruta') {
             <div class="form-two"><label>Operador<select name="draftOperator" [(ngModel)]="state.draftOperator"><option value="">Sin asignar</option>@for (u of state.users; track u.id) { <option [value]="u.id">{{ u.name }}</option> }</select></label><label>Día de operación<select name="draftDay" [(ngModel)]="state.draftDay">@for (d of state.days; track d) { <option>{{ d }}</option> }</select></label></div>
-            <div class="form-two"><label>Estado<select name="draftStatus" [(ngModel)]="state.draftStatus"><option>Borrador</option><option>Publicada</option><option>Inactiva</option></select></label><label>Color en el mapa<input name="draftColor" type="color" [(ngModel)]="state.draftColor"></label></div>
+            <div class="form-two"><label>Color en el mapa<input name="draftColor" type="color" [(ngModel)]="state.draftColor"></label><p class="hint-line">El estado de la ruta lo controla el flujo de aprobación (Borrador → Pendiente → Publicada → En ejecución). Editar una ruta pendiente o publicada invalida su aprobación.</p></div>
           }
           @case ('cliente') {
             <label>Dirección<input name="draftDetail" [(ngModel)]="state.draftDetail" placeholder="Calle, número, colonia, ciudad"></label>
@@ -172,3 +173,4 @@
 }
 
 @if (state.toast) { <div class="toast-message" [class.toast-error]="state.toastKind === 'error'" [attr.role]="state.toastKind === 'error' ? 'alert' : 'status'"><span class="toast-icon">@if (state.toastKind === 'error') { <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg> } @else { ✓ }</span><p>{{ state.toast }}</p><button type="button" aria-label="Cerrar aviso" (click)="state.toast = ''">×</button></div> }
+}

@@ -2,7 +2,7 @@
 
 > Lista de avance viva. Cada fase se **compila y prueba** antes de iniciar la siguiente.
 > Referencias `DT-xx` → `DECISIONES_TECNICAS.md`. Estado: ☐ pendiente · ◐ en curso · ☑ terminado y verificado.
-> Fecha de creación: 2026-11-17. Estado global: **Fases 0 y 1 terminadas y verificadas. Siguiente: Fase 2.**
+> Fecha de creación: 2026-11-17. Estado global: **Fases 0, 1 y 2 terminadas y verificadas. Siguiente: Fase 3.**
 
 ## Comandos de verificación por fase (salida filtrada)
 
@@ -86,32 +86,35 @@ npx playwright test --reporter=line --trace off
 ## Fase 2 — Change detection y operación de rutas
 
 ### 2.A Reactividad (DT-49)
-- ☐ Auditar las 31 pantallas: reemplazar mutaciones in-place por `set/update` de signals.
-- ☐ Eliminar `appRef.tick()` (persist, idle) y `NgZone.run` (RFC); RFC con `exhaustMap` + signal de estado.
-- ☐ Timers del QR y Carta Porte con `timer()` + `takeUntilDestroyed()`; sondeos sustituidos por SSE.
-- ☐ Mapbox: callbacks fuera de zona escriben signals; sin `detectChanges()`.
-- ☐ Estados de carga/error uniformes (`resource`-like: `idle|loading|ok|error`) en cada store.
-- ☐ Pantallas con signals → `OnPush`.
+- ☑ Estrategia coherente (Zone.js + OnPush + estado en signals): `makeReactive()` respalda con signals los campos de `EnrutaState` y de los componentes con estado asíncrono; las 31 pantallas, `AppComponent`, la frontera de errores y el mapa pasan a **OnPush**. Las asignaciones por reemplazo repintan la vista; la mutación en sitio de objetos anidados solo es segura dentro de eventos de la propia vista.
+- ☑ Eliminados `appRef.tick()` y `NgZone.run` (Fase 1). RFC con signal; el doble clic de login/importación/guardado se bloquea con banderas de ocupado (no hace falta `exhaustMap`).
+- ☑ Timers del QR, Carta Porte, mapa y avisos con `timer()` de RxJS (sin `setTimeout`/`setInterval` en la app); sondeo del QR sustituido por SSE (solo queda un respaldo cada 5 s).
+- ☑ Mapbox: callbacks fuera de zona escriben signals; sin `detectChanges()`.
+- ◐ Estados de carga/error: banderas `loading`/`error` en los stores nuevos (administración, conductor, dispositivos, operación). Un patrón único `resource` para todas las pantallas queda pendiente.
+- ☑ Pantallas → `OnPush`.
 - **Criterio:** escenario 20 (Playwright verifica actualización sin recargar ni clic extra en: login/logout, RFC, CRUD, mapa, QR, cambio de centro, Carta Porte).
 
 ### 2.B Catálogo y clientes (base para rutas)
-- ☐ `migrations/002_catalog.sql`; repos y endpoints `/api/clients`, `/api/products`, `/api/zones`, `/api/centers`.
-- ☐ Importación CSV/XLSX: el parseo sigue en cliente; envío por lotes a `POST /api/import/{clients|products}` con modo `omitir|actualizar` y reporte.
-- ☐ Exportaciones CSV desde backend.
+- ☑ `migrations/002_catalog.sql`; repos y endpoints `/api/clients`, `/api/products`, `/api/zones`, `/api/centers`.
+- ☑ Importación CSV/XLSX: el parseo sigue en cliente; envío por lotes a `POST /api/import/{clients|products}` con modo `omitir|actualizar` y reporte.
+- ☑ Exportaciones CSV desde backend.
 
 ### 2.C Rutas y aprobaciones (DT-23…25)
-- ☐ `migrations/004_routes.sql`; servicio de máquina de estados con tabla de transiciones permitidas.
-- ☐ Endpoints: `GET/POST /api/routes`, `GET/PUT /api/routes/:id` (con `revision`), `PUT /api/routes/:id/stops`, `POST …/duplicate`, `…/submit`, `…/approve {revision}`, `…/reject {revision, reason}`, `…/cancel`, `GET /api/approvals`.
-- ☐ Invalidación de aprobación al editar; 409 `REVISION_MISMATCH`.
-- ☐ Planeador y Aprobaciones conectados; optimización Mapbox con respaldo local.
+- ☑ `migrations/004_routes.sql`; servicio de máquina de estados con tabla de transiciones permitidas.
+- ☑ Endpoints: `GET/POST /api/routes`, `GET/PUT /api/routes/:id` (con `revision`), `PUT /api/routes/:id/stops`, `POST …/duplicate`, `…/submit`, `…/approve {revision}`, `…/reject {revision, reason}`, `…/cancel`, `GET /api/approvals`.
+- ☑ Invalidación de aprobación al editar; 409 `REVISION_MISMATCH`.
+- ☑ Planeador y Aprobaciones conectados; optimización Mapbox con respaldo local.
 
 ### 2.D Dispositivos, QR y repartidor (DT-26…29)
-- ☐ `migrations/003_fleet.sql`; port de endpoints actuales de vehículos y dispositivos sin `x-company`.
-- ☐ `POST /api/devices/link-qr`, `POST /api/devices/:id/link-token`, `POST /api/mobile/v1/link`, `POST /api/devices/:id/revoke`.
-- ☐ `GET /api/events` (SSE) + `EventStreamService` en Angular.
-- ☐ QR como URL `${PUBLIC_WEB_URL}/repartidor/vincular#t=…`; advertencia si es localhost.
-- ☐ Shell `/repartidor`: login, vincular, "Mi ruta", descarga de ruta (`GET /api/mobile/v1/route/today`), iniciar ruta.
-- **Pruebas de salida de Fase 2:** escenarios 5, 6, 7, 8, 9, 20.
+- ☑ `migrations/003_fleet.sql`; port de endpoints actuales de vehículos y dispositivos sin `x-company`.
+- ☑ `POST /api/devices/link-qr`, `POST /api/devices/:id/link-token`, `POST /api/mobile/v1/link`, `POST /api/devices/:id/revoke`.
+- ☑ `GET /api/events` (SSE) + `EventStreamService` en Angular.
+- ☑ QR como URL `${PUBLIC_WEB_URL}/repartidor/vincular#t=…`; advertencia si es localhost.
+- ☑ Shell `/repartidor`: login, vincular, "Mi ruta", descarga de ruta (`GET /api/mobile/v1/route/today`), iniciar ruta.
+- **Pruebas de salida de Fase 2 (ejecutadas):** escenarios 5, 6, 7, 8, 9 y 20 → **131/131 `node:test`**; Karma **25 correctas + 1 omitida**; `ng build` de producción sin errores ni advertencias; humo E2E de la Fase 1 **12/12** (sin regresiones con OnPush) y de la Fase 2 **15/15**. Detalle en `ESTADO_IMPLEMENTACION.md`.
+
+**Diferencias respecto al plan original:** (1) el QR codifica `PUBLIC_WEB_URL/repartidor/vincular#t=<token>`; el JSON `{v:1, api, token}` para Flutter sigue disponible vía `apiUrl` en la respuesta. (2) Las rutas conservan el campo `day` (día de la semana) en lugar de fecha: la validación «fecha ≥ hoy» se difiere a la Fase 3.C con los horarios de embarque. (3) `route_loads` y `orders` no se crean todavía (Fase 3.D). (4) Los productos ganan `description` y `price_cents` como interino hasta las listas de precios.
+
 
 ---
 

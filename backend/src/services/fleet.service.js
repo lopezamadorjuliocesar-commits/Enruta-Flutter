@@ -31,7 +31,7 @@ function mapDbError(e) {
   return conflict('Registro duplicado.', 'DUPLICATE');
 }
 
-function createFleetService({ config, store, clock }) {
+function createFleetService({ config, store, clock, bus }) {
   const audit = makeAudit(clock); const t = () => iso(new Date(clock()));
   const guarded = async (fn) => { try { return await fn(); } catch (e) { throw mapDbError(e); } };
 
@@ -90,6 +90,19 @@ function createFleetService({ config, store, clock }) {
     },
     /** QR genérico: el dispositivo se crea cuando la app escanea el código. */
     async linkQr(ctx) { return store.tx((r) => issueToken(r, ctx, null)); },
+    /** Revoca el dispositivo: su credencial deja de servir de inmediato y el panel/otros clientes se enteran por SSE. */
+    async revoke(ctx, id) {
+      const out = await store.tx(async (r) => {
+        const d = await r.devices.get(ctx.companyId, id); if (!d) throw notFound('Dispositivo no encontrado.');
+        const at = iso(new Date(clock())); const n = await r.deviceSessions.revokeForDevice(id, at);
+        await r.linkTokens.invalidateForDevice(id, at);
+        await r.devices.update(ctx.companyId, id, { alias: d.alias, imei: d.imei_serial, brand: d.brand, model: d.model, os: d.os, osVersion: d.os_version, phone: d.phone, driverId: d.driver_id, vehicleId: d.vehicle_id, status: 'Inactivo' });
+        await audit(r, ctx, 'device.revoked', { entity: 'device', entityId: id, detail: { alias: d.alias, credentials: n } });
+        return { id, alias: d.alias, revoked: n };
+      });
+      bus?.publish({ companyId: ctx.companyId, type: 'device.revoked', data: { deviceId: id, alias: out.alias } });
+      return out;
+    },
     async linkQrStatus(ctx, jti) {
       return store.read(async (r) => {
         const tok = await r.linkTokens.get(ctx.companyId, jti); if (!tok) throw notFound('Código no encontrado.');
@@ -101,12 +114,27 @@ function createFleetService({ config, store, clock }) {
     },
   };
 
+  /** Credencial del dispositivo (X-Device-Token): válida, no revocada y dispositivo activo. */
+  async function deviceFromToken(token) {
+    if (!token || typeof token !== 'string') throw new HttpError(403, 'DEVICE_REQUIRED', 'Este dispositivo no está vinculado. Escanea el QR del panel para vincularlo.');
+    return store.read(async (r) => {
+      const s = await r.deviceSessions.findByHash(sha256(token));
+      if (!s) throw new HttpError(403, 'DEVICE_REQUIRED', 'Este dispositivo no está vinculado. Escanea el QR del panel para vincularlo.');
+      if (s.revoked_at) throw new HttpError(401, 'DEVICE_REVOKED', 'Este dispositivo fue desvinculado por un administrador.');
+      const d = await r.devices.get(s.company_id, s.device_id);
+      if (!d) throw new HttpError(401, 'DEVICE_REVOKED', 'Este dispositivo ya no existe.');
+      if (d.status !== 'Activo') throw new HttpError(403, 'DEVICE_BLOCKED', `El dispositivo está ${d.status.toLowerCase()}.`);
+      const driver = d.driver_id ? (await r.drivers.list(s.company_id)).find((x) => x.id === d.driver_id) : null;
+      return { id: d.id, companyId: s.company_id, alias: d.alias, driverEmail: driver?.email?.toLowerCase() ?? null, driverName: driver?.name ?? null, vehiclePlate: d.vehicle_plate };
+    });
+  }
+
   async function issueToken(r, ctx, deviceId) {
     const token = randomToken(32); const id = uuid(); const at = new Date(clock()); const expiresAt = addMinutes(at, LINK_TTL_MIN);
     if (deviceId) await r.linkTokens.invalidateForDevice(deviceId, iso(at));
     await r.linkTokens.create({ id, tokenHash: sha256(token), companyId: ctx.companyId, deviceId, expiresAt: iso(expiresAt), createdAt: iso(at) });
     await audit(r, ctx, 'device.link_token_issued', { entity: 'device', entityId: deviceId, detail: { jti: id } });
-    return { token, jti: id, expiresAt: iso(expiresAt), ttlSeconds: LINK_TTL_MIN * 60, apiUrl: config.publicApiUrl };
+    return { token, jti: id, expiresAt: iso(expiresAt), ttlSeconds: LINK_TTL_MIN * 60, apiUrl: config.publicApiUrl, linkUrl: `${config.publicWebUrl}/repartidor/vincular#t=${token}` };
   }
 
   /** La app móvil confirma la vinculación con el token del QR. Devuelve la credencial del dispositivo (Bearer). */
@@ -139,9 +167,9 @@ function createFleetService({ config, store, clock }) {
       await r.deviceSessions.create({ id: uuid(), tokenHash: sha256(deviceToken), deviceId: d.id, companyId, createdAt: at });
       await audit(r, { companyId, name: 'Dispositivo móvil' }, 'device.linked', { entity: 'device', entityId: d.id, detail: { alias: d.alias } });
       const info = await r.devices.get(companyId, d.id);
-      return { ok: true, deviceToken, device: { id: info.id, alias: info.alias }, driver: info.driver_id ? { id: info.driver_id, name: info.driver_name } : null, vehicle: info.vehicle_plate || null };
+      return { _companyId: companyId, _jti: tok.id, ok: true, deviceToken, device: { id: info.id, alias: info.alias }, driver: info.driver_id ? { id: info.driver_id, name: info.driver_name } : null, vehicle: info.vehicle_plate || null };
     });
   }
-  return { drivers, vehicles, devices, mobileLink };
+  return { drivers, vehicles, devices, mobileLink: async (b) => { const out = await mobileLink(b); bus?.publish({ companyId: out._companyId, type: 'device.linked', data: { deviceId: out.device.id, alias: out.device.alias, jti: out._jti } }); delete out._companyId; delete out._jti; return out; }, deviceFromToken };
 }
 module.exports = { createFleetService };

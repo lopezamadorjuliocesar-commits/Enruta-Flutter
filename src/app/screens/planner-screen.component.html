@@ -2,7 +2,7 @@
   <select class="filter-button" aria-label="Ruta activa" [ngModel]="app.activeRouteId" (ngModelChange)="app.selectRoute($event)"><option [ngValue]="null">Selecciona una ruta</option>@for (route of app.routes; track route.id) { <option [ngValue]="route.id">{{ route.name }}</option> }</select>
   <button class="secondary-button" type="button" (click)="app.openCreate('ruta')">＋ Nueva ruta</button>
   @if (app.activeRoute) { <button class="secondary-button" type="button" (click)="app.openEdit('ruta', app.activeRoute)">Editar ruta</button> }
-  <button class="secondary-button" type="button" (click)="app.optimizeRoute()">Optimizar</button><button class="primary-button" type="button" (click)="app.submitRoute()">Publicar ruta</button></div></div>
+  <button class="secondary-button" type="button" (click)="app.optimizeRoute()">Optimizar</button><button class="primary-button" type="button" (click)="app.submitRoute()">Enviar a aprobación</button></div></div>
 <div class="planner-layout"><section class="panel planner-map"><div class="panel-heading"><div><h2>{{ app.activeRoute?.name || 'Vista del recorrido' }}</h2><p>{{ app.activeRoute ? app.activeRoute.detail : 'Selecciona o crea una ruta para empezar.' }}</p></div><span class="badge-muted">{{ app.activeRoute?.status || 'Borrador' }}</span></div>
   <div class="map-holder"><app-route-map [markers]="app.plannerMarkers" [lines]="app.plannerLines" [height]="460" /></div>
   @if (app.routeStops.length && app.plannerMarkers.length < app.routeStops.length) { <p class="hint-line map-hint">{{ app.routeStops.length - app.plannerMarkers.length }} parada(s) sin ubicación no aparecen en el mapa. Ubícalas desde la lista.</p> }

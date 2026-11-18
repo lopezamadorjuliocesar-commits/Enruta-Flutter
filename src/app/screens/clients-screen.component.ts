@@ -8,7 +8,7 @@ import type { EnrutaState } from '../core/enruta-state.service';
   selector: 'app-clients-screen',
   standalone: true,
   imports: [FormsModule, RouteMapComponent, DecimalPipe],
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './clients-screen.component.html',
 })
 export class ClientsScreenComponent {
