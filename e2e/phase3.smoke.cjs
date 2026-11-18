@@ -89,7 +89,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
   });
 
   await step('8b. entrega PARCIAL: pide motivo por línea y el formulario publicado (código obligatorio) antes de guardar', async () => {
-    await M.page.selectOption('select[aria-label="Producto"]', { label: 'Agua purificada 600 ml (AGU-600)' }); await M.page.click('button:has-text("Agregar")');
+    await M.page.selectOption('select[aria-label="Producto"]', await M.page.locator('select[aria-label="Producto"] option', { hasText: 'AGU-600' }).first().getAttribute('value')); await M.page.click('button:has-text("Agregar")');
     const line = M.page.locator('[data-product="Agua purificada 600 ml"]'); await line.locator('input').nth(0).fill('3'); await line.locator('input').nth(1).fill('2');
     await M.page.click('[data-testid="save-delivery"]'); await seeText(M.page, 'Completa el formulario de entrega'); await seeText(M.page, 'es obligatorio');
     await M.page.locator('[data-field="Código de recepción"] input').fill('REC-0001'); await M.page.click('[data-testid="save-delivery"]'); await seeText(M.page, 'Indica el motivo de lo no entregado');
