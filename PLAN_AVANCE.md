@@ -139,23 +139,23 @@ npx playwright test --reporter=line --trace off
 - ☑ Parámetros por herencia Empresa → Centro → Zona → Ruta → Usuario (`GET /api/parameters/effective`, incl. `inheritedFor`) aplicados en los servicios: radio de visita, saldo vencido (bloqueo de crédito), horario de embarque, versión mínima (426).
 - Desviación: los formularios y parámetros viajan en el mismo payload versionado (no hay `/api/forms/:kind` ni `/api/parameters` por separado). `loading_window` y `min_client_version` quedan vacíos (sin restricción) hasta que la empresa los define.
 
-### 3.D Precios, inventario, módulos y liquidaciones (DT-46, 46b, 47)
-- ☐ `/api/price-lists`, `/api/promotions`, `/api/discount-rules`, `GET /api/pricing/quote?clientId&items`.
-- ☐ Stock por centro y carga de ruta; bloqueo de negativos; alertas de mínimo vía cola.
-- ☐ Preventa (`orders`), autoventa, comodato (`assets`), auditoría de exhibición — condicionados al módulo publicado.
-- ☐ `migrations/008_settlements.sql`; `GET /api/settlements`, `POST /api/routes/:id/settlement`, `POST /api/settlements/:id/deposits`, `…/authorize`, `…/reject`.
+### 3.D Precios, inventario, módulos y liquidaciones (DT-46, 46b, 47) — ☑ completada
+- ☑ `migrations/009_pricing.sql`, `010_inventory.sql`, `011_settlements.sql`. `/api/price-lists`, `/api/promotions`, `/api/discount-rules`, `GET /api/pricing/quote?clientId&items`; el repartidor recibe el precio efectivo (`GET /mobile/v1/products?clientId=`).
+- ☑ Stock por centro con mínimo (alerta `STOCK_ALERT` por la cola), carga de ruta (`POST /api/routes/:id/load`), devolución automática al finalizar; nunca negativo (409 `INSUFFICIENT_STOCK`).
+- ☑ Preventa (`orders`), autoventa (`sale:true` desde la carga), comodato (`assets`, verificación/recogida en la visita) y auditoría de exhibición, todos condicionados al módulo PUBLICADO (`409 MODULE_DISABLED`). Pantalla «Inventario y módulos».
+- ☑ Liquidaciones: se abren solas al finalizar la ruta; `POST /api/settlements/:id/deposits|submit|authorize|reject`; tolerancia heredada publicada; autoriza OTRA persona; `UNIQUE(route_id)`; idempotentes y auditadas.
+- Desviaciones: migraciones 009–011 (no 008); el precio base del producto se conserva como último respaldo de la lista de precios; el repartidor no da de alta ni entrega activos del almacén desde el teléfono (sí verifica y recoge; el alta/entrega está en el panel).
 
-### 3.E Cola, RFC, Carta Porte y adaptadores (DT-30…33, 48)
-- ☐ `queue/` con lease, backoff y recuperación al arranque; handlers `CARTA_PORTE_STAMP`, `SEND_MAIL`, `STOCK_ALERT`, `NOTIFY`.
-- ☐ Adaptadores RFC (`local|idoo`) y PAC (`local|live`) con escenarios deterministas (`REJ/MIS/ERR/TMO`).
-- ☐ `migrations/009_fiscal.sql`; Carta Porte persistida en backend; historial desde BD; rótulo "Simulado / Desarrollo".
-- ☐ `GET /api/integrations` y pantalla de configuración con estado real; retirar `pg`, `bullmq`, `ioredis`.
+### 3.E Cola, RFC, Carta Porte y adaptadores (DT-30…33, 48) — ◐ parcial
+- ☑ Cola `jobs_queue` (lease, backoff, recuperación) con handlers `CARTA_PORTE_STAMP`, `SEND_MAIL`, `STOCK_ALERT` y `NOTIFY`; sin `bullmq`/`ioredis`/`pg`.
+- ☑ Adaptadores RFC (`local|idoo`) y PAC con escenarios deterministas por prefijo (`REJ/MIS/ERR/TMO` en RFC; `REJ-/ERR-/TMO-` en el folio de Carta Porte; el rechazo no se reintenta). Nada genera UUID fiscal en modo local.
+- ☑ `GET /api/integrations` y pantalla de Configuración con estado real («Conectado» solo con servicio real verificado en 24 h; lo local «Simulado / Desarrollo»; lo inexistente «No disponible en esta versión»). Se eliminaron los interruptores locales de SMS/WhatsApp.
+- ☐ Pendiente: historial de Carta Porte leído por completo desde la BD en la pantalla (parte sigue en el navegador).
 
-### 3.F Indicadores y auditoría
-- ☐ `GET /api/reports/summary?from&to&centerId&routeId&operatorId` (entregas, % cumplimiento, tiempos por visita, cobros por método, diferencias, incidencias, fuera de radio).
-- ☐ `GET /api/reports/export.csv`, `GET /api/audit?filters`, `GET /api/audit/export.csv`.
-- ☐ Auditoría append-only con `prev_hash` en todas las acciones de servicios.
-- **Pruebas de salida de Fase 3:** escenarios 4, 10, 11, 12, 13, 14, 15.
+### 3.F Indicadores y auditoría — ☑ completada
+- ☑ `GET /api/reports/summary?from&to&centerId&routeId&operatorId` y `GET /api/reports/export.csv` (entregas, cumplimiento, surtido, tiempo por visita, cobros por método, diferencias, incidencias, fuera de radio); pantalla «Indicadores» con filtros reales.
+- ☑ `GET /api/audit` con filtros (acción, entidad, texto, fechas) y `GET /api/audit/export.csv`; pantalla «Bitácora» con filtros; cadena de hashes verificable.
+**Pruebas de salida de Fase 3:** escenarios 4, 10, 11, 12, 13, 14, 15.
 
 ---
 

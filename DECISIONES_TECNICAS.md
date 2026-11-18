@@ -466,3 +466,25 @@ Puntos a corregir explícitamente: login/logout, validación RFC, CRUD, mapa, te
 3. No existe historial visual del recorrido (el endpoint `tracking/routes/:id/history` existe, la pantalla no).
 4. La revisión de evidencias vive en Rutas → «Ejecución» (visitas, líneas, cobros, enlaces a foto y firma); falta una galería con miniaturas y un visor.
 5. En HTTP por LAN algunos navegadores móviles restringen cámara y geolocalización; probado solo con Chromium emulado (no con un teléfono físico).
+
+---
+
+## 9. Ajustes y decisiones de la Fase 3 (puntos 11, 12 y 13; prevalecen sobre las secciones 1–8)
+
+| Ref. | Decisión | Motivo |
+|---|---|---|
+| DT-46d | **Precio efectivo** (`commerce.core.unitPrice`): lista asignada al cliente (activa, vigente, mayor prioridad) → lista predeterminada vigente → precio base del producto (respaldo; DT-46 original pedía error) → `422 PRODUCT_NO_PRICE`. Después se aplica la MEJOR promoción vigente (no se acumulan; porcentaje en puntos base o monto por unidad). El descuento manual se aplica sobre ese precio y se limita por rol (`maxDiscountBp`) o permiso `discounts.over_limit`. Las vigencias son por **día inclusivo** en la zona horaria de la empresa. La línea de entrega guarda lista, promoción y origen. | Auditabilidad del precio cobrado; el catálogo ya tenía precio base. |
+| DT-46e | **Stock**: `center_stock` + `stock_movements` (con saldo) y `route_loads`. `applyStock` verifica dentro de la transacción y rechaza saldos negativos (409). Al cruzar el mínimo hacia abajo se encola `STOCK_ALERT` (dedupe por movimiento) y su handler crea la notificación. La carga descuenta del centro; al finalizar la ruta lo no vendido regresa (`ROUTE_RETURN`). Con carga registrada (o en autoventa) el repartidor no puede entregar más de lo que trae (al reemplazar una entrega se restituye su consumo previo). Rutas sin carga no controlan existencias del camión. | Integridad numérica sin imponer carga a quien no la usa. |
+| DT-46f | **Módulos**: preventa (`orders`, un pedido abierto por cliente; la entrega con `orderId` fija las cantidades del pedido y lo marca ENTREGADO/PARCIAL), autoventa (`sale:true`: cantidad vendida = entregada, sale de la carga), comodato (`assets` con eventos; el repartidor verifica/recoge, el panel da de alta y entrega) y exhibición (frentes observados vs. esperados). Todos exigen el módulo en la configuración **publicada** (`409 MODULE_DISABLED`). Permisos nuevos: `inventory.read`, `inventory.manage`, `orders.manage` (las empresas existentes los asignan a sus roles; las nuevas los reciben de fábrica). | Flujos reales condicionados a la publicación. |
+| DT-47b | **Liquidación**: se abre sola en `finish` con esperado = Σ cobros en efectivo (otros métodos informativos). Depósitos (idempotentes) → `submit` compara contra la tolerancia **publicada** efectiva de la ruta: `BALANCED` (0), `WITHIN_TOLERANCE` o `PENDING_AUTHORIZATION`. Autoriza/rechaza `settlements.authorize` y **distinto de quien concilió** (`403 SELF_AUTHORIZATION`); rechazar exige motivo. Cerrada = inmutable; `UNIQUE(route_id)` evita la doble liquidación; todo en auditoría y notificación. | DT-47. |
+| DT-31b | **Integraciones**: `GET /api/integrations` deriva el estado del modo y de verificaciones reales (memoria del proceso, 24 h); sin verificación nunca es «Conectado». Los interruptores locales de SMS/WhatsApp se eliminaron (no existen implementaciones). | Honestidad operativa. |
+| DT-30b | **PAC local determinista**: prefijo del folio `REJ-` (rechazo permanente → `DEAD`, sin reintentos), `ERR-` (error con reintentos), `TMO-` (timeout simulado con reintentos), otro → «Simulado» sin UUID. | Probar éxito/rechazo/error/timeout sin PAC real. |
+| DT-54 | **Indicadores**: todo sale de SQL sobre visitas, entregas, líneas, cobros, liquidaciones e incidencias; periodo por fecha de llegada (UTC), filtros por centro visible, ruta y operador. Cumplimiento = entregas totales ÷ (visitas resueltas: cerradas + no visitadas); surtido = unidades entregadas ÷ pedidas. La exportación CSV usa exactamente las mismas cifras. Sin datos → ceros/«—», nunca inventados. | Vista y exportación coinciden. |
+| DT-55 | **Bitácora**: filtros por acción (prefijo), entidad, texto y fechas (día final inclusivo) y exportación CSV (hasta 500 filas); la cadena de hashes sigue verificable. | Trazabilidad consultable. |
+
+### Pendientes conocidos tras los puntos 11–13
+1. Carta Porte: el historial en pantalla aún se apoya parcialmente en datos locales del navegador.
+2. Alta/entrega de activos desde el teléfono, y descuentos «con nombre» aplicables desde la entrega (hoy el repartidor captura el porcentaje limitado por su rol).
+3. Existencias por zona/ubicación dentro del centro y lotes/caducidades no se modelan.
+4. Los indicadores usan UTC para el periodo; las vigencias de precios usan la zona de la empresa.
+5. El estado de integraciones vive en memoria (se rehace con el uso tras un reinicio).

@@ -113,7 +113,7 @@ const login = async (page, email) => { await page.goto(BASE + '/'); await seeTex
   });
 
   await step('13b. Bitácora: filtros por entidad y texto funcionan, hay eventos de la liquidación y el CSV se exporta', async () => {
-    await nav(A.page, 'Bitácora'); await A.page.locator('select[name="aentity"]').selectOption('settlement'); await A.page.locator('[data-testid="audit-count"]').getByText(/^[1-9]/).waitFor(); await seeText(A.page, 'settlement');
+    await nav(A.page, 'Bitácora'); await A.page.locator('select[name="aentity"]').selectOption('settlement'); await A.page.locator('[data-testid="audit-count"]').getByText(/^[1-9]/).waitFor(); await A.page.locator('table').getByText('settlement.submitted').first().waitFor();
     await A.page.fill('input[name="aq"]', 'zzz-nada'); await A.page.click('[data-testid="audit-apply"]'); await A.page.locator('[data-testid="audit-count"]').getByText(/^0 eventos/).waitFor();
     const href = await A.page.locator('[data-testid="export-audit"]').getAttribute('href'); const csv = await A.ctx.request.get(BASE + href); if (!csv.ok()) throw new Error('export bitácora ' + csv.status());
     const all = await A.ctx.request.get(BASE + '/api/audit/export.csv?action=settlement'); if (!(await all.text()).includes('settlement.authorized')) throw new Error('la autorización no quedó en la bitácora');

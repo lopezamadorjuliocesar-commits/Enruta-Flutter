@@ -88,11 +88,12 @@ Una empresa registrada con validación simulada queda con `fiscal_status=SIMULAT
 ## 8. Pruebas
 
 ```bash
-npm run test:backend                         # 153 pruebas node:test
+npm run test:backend                         # 165 pruebas node:test
 npm test                                     # Karma (CHROME_BIN=/ruta/a/chrome si no está en el PATH)
 npm run seed:reset && npm run start:backend  # y en otra terminal: npm start
 npm run e2e:phase1                           # humo E2E (Fase 1, 12 pasos) con Playwright
 npm run e2e:phase2                           # humo E2E (Fase 2, 15 pasos: rutas, QR, móvil, tiempo real)
+npm run e2e:phase3b                          # humo E2E (Fase 3 · puntos 11–13, 14 pasos: precios, inventario, módulos, liquidación, indicadores)
 npm run e2e:phase3                           # humo E2E (Fase 3 · puntos 8–10, 17 pasos: formularios, publicación, entrega, cobro, GPS, simulador)
 ```
 
@@ -115,6 +116,14 @@ No hay proyecto Flutter en este repositorio. Contrato `/api/mobile/v1` disponibl
   - `POST /api/mobile/v1/positions` `{ routeId, positions:[{lat, lng, accuracy?, speed?, heading?, recordedAt}] }` (≤ 100; solo con la ruta en ejecución).
   - Cabecera `X-Client-Version`: si la versión mínima publicada es mayor → `426 UPGRADE_REQUIRED`. Otros códigos: `OUTSIDE_LOADING_WINDOW`, `CREDIT_BLOCKED`, `OVERPAYMENT`, `VISITS_PENDING`, `DELIVERY_REQUIRED`, `FORM_INVALID`.
 - Panel (sesión + permisos): `GET /api/routes/:id/execution`, `GET /api/evidences/:id` (`tracking.read`); `GET /api/tracking/live`, `GET /api/tracking/routes/:id/history`; `POST|DELETE /api/routes/:id/simulation` (`simulator.run`); `GET /api/config`, `PUT /api/config/draft` (`config.manage`), `POST /api/config/publish` (`config.publish`), `GET /api/config/versions[/:v]`, `GET /api/parameters/effective?routeId=&zoneId=&userId=&centerId=&source=draft&inheritedFor=ZONA`.
+
+### Precios, inventario, liquidaciones, indicadores
+- Panel (permisos): `GET/POST/PUT/DELETE /api/price-lists|promotions|discount-rules` (`prices.*`), `GET /api/pricing/quote?clientId=&items=productoId:cantidad,…`; `GET /api/inventory/stock|movements`, `POST /api/inventory/adjust`, `GET|POST /api/routes/:id/load` (`inventory.*`); `GET|POST /api/orders`, `GET|POST /api/assets` y `/assets/:id/loan|return|retire`; `GET /api/display-audits`.
+- Móvil: `GET /api/mobile/v1/products?clientId=` (precio efectivo), `POST …/visits/:id/delivery` con `orderId` (preventa) o `sale:true` (autoventa), `POST …/visits/:id/display-audit`, `POST …/visits/:id/assets/verify|loan|return`.
+- Liquidaciones: `GET /api/settlements[/:id]`, `POST /api/routes/:id/settlement`, `POST /api/settlements/:id/deposits|submit|authorize|reject` (con `Idempotency-Key`).
+- Indicadores y bitácora: `GET /api/reports/summary|export.csv?from=&to=&centerId=&routeId=&operatorId=`, `GET /api/audit?action=&entity=&q=&from=&to=`, `GET /api/audit/export.csv`; estado real de integraciones: `GET /api/integrations`.
+- PAC local determinista: un folio que empiece por `REJ-`, `ERR-` o `TMO-` simula rechazo, error o timeout; cualquier otro queda «Simulado» (sin UUID fiscal).
+- Nota: las empresas creadas antes de esta versión deben asignar `inventory.read`, `inventory.manage` y `orders.manage` a sus roles (o ejecutar `npm run seed:reset`).
 
 ### GPS, simulador y configuración
 - Estado de un vehículo: **Ubicación real** (GPS del teléfono, dato de ≤ `GPS_STALE_SECONDS`), **Ubicación simulada** (simulador), **Desactualizado** (hasta `GPS_OFFLINE_SECONDS`) y **Desconectado**. «En vivo» solo aparece con al menos un vehículo real reciente.
