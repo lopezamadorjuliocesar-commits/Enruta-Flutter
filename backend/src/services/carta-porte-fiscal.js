@@ -32,13 +32,14 @@ function validateCartaPorteSubmission(body) {
 }
 
 function providerMode() {
-  return (process.env.PAC_MODE || 'sandbox').trim().toLowerCase();
+  const mode = (process.env.PAC_MODE || 'local').trim().toLowerCase();
+  return mode === 'local' ? 'sandbox' : mode;   // `local` es el nombre nuevo del modo de simulación
 }
 
 function validateProviderConfiguration() {
   const mode = providerMode();
   if (mode === 'sandbox') return;
-  if (mode !== 'live') throw new Error('PAC_MODE debe ser sandbox o live.');
+  if (mode !== 'live') throw new Error('PAC_MODE debe ser local, sandbox o live.');
   if (!process.env.PAC_API_URL || !process.env.PAC_API_TOKEN) {
     throw new Error('Configura PAC_API_URL y PAC_API_TOKEN antes de enviar documentos al PAC.');
   }
@@ -51,6 +52,7 @@ async function stampCartaPorte(document) {
   if (mode === 'sandbox') {
     return {
       status: 'Simulado',
+      simulated: true,
       message: 'Prueba en sandbox completada. El CFDI no fue timbrado y no tiene validez fiscal.',
     };
   }

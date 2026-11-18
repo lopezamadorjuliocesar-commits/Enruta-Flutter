@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { stampCartaPorte, validateCartaPorteSubmission } = require('../src/carta-porte-fiscal');
+const { stampCartaPorte, validateCartaPorteSubmission } = require('../src/services/carta-porte-fiscal');
 
 const validSubmission = {
   folio: 'CP-1',
