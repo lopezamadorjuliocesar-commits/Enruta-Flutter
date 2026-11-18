@@ -11,6 +11,7 @@ const { createAuthService } = require('./services/auth.service');
 const { createAdminService } = require('./services/admin.service');
 const { createCatalogService } = require('./services/catalog.service');
 const { createFiscalService } = require('./services/fiscal.service');
+const { createFleetService } = require('./services/fleet.service');
 const { CATALOG } = require('./services/permissions');
 const http = require('./middleware/http');
 const createRoutes = require('./routes');
@@ -32,6 +33,7 @@ async function createRuntime(config, { clock = () => Date.now(), logger = consol
   const admin = createAdminService({ store, clock, auth });
   const catalog = createCatalogService({ store, clock });
   const fiscal = createFiscalService({ store, queue, clock });
+  const fleet = createFleetService({ config, store, clock });
   queue.register('SEND_MAIL', async (payload) => { await adapters.mail.send(payload); return { scrubPayload: true }; });
   queue.register('CARTA_PORTE_STAMP', (payload, job) => fiscal.stampJob(payload, job));
 
@@ -42,7 +44,7 @@ async function createRuntime(config, { clock = () => Date.now(), logger = consol
   app.use('/api', (req, res, next) => { res.set('X-Content-Type-Options', 'nosniff'); next(); });
   app.use(express.json({ limit: '2mb' }));
   app.use('/api', http.csrfGuard);
-  const services = { auth, admin, catalog, fiscal };
+  const services = { auth, admin, catalog, fiscal, fleet };
   app.use('/api', createRoutes({ config, store, queue, services, adapters, files, clock }));
   app.use(http.errorHandler(logger));
 

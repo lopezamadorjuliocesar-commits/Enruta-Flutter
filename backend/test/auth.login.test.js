@@ -168,3 +168,23 @@ test('foto de perfil: se guarda en disco (no en SQLite), solo imágenes reales y
   r = await u.client.request('POST', '/api/me/avatar', Buffer.from('<script>alert(1)</script>'), { raw: true, headers: { 'Content-Type': 'image/png' } }); assert.equal(r.status, 422);
   assert.equal((await u.client.get('/api/session')).body.user.hasAvatar, true);
 });
+
+test('las consultas en segundo plano (X-EnRuta-Background) NO renuevan la inactividad, pero sí detectan un cierre de sesión', async () => {
+  const own = await startApp(); await registerCompany(own, { name: 'Fondo SA', email: 'a@fondo.mx' });
+  const c = own.client(); await c.post('/api/auth/login', { email: 'a@fondo.mx', password: PASSWORD });
+  for (let i = 0; i < 4; i++) { own.clock.advance(4 * 60 * 60_000); const r = await c.get('/api/session', { headers: { 'X-EnRuta-Background': '1' } }); if (i < 2) assert.equal(r.status, 200); }
+  const r = await c.get('/api/session', { headers: { 'X-EnRuta-Background': '1' } }); assert.equal(r.status, 401); assert.equal(r.body.code, 'SESSION_EXPIRED', 'el sondeo no mantuvo viva la sesión inactiva');
+  const d = own.client(); await d.post('/api/auth/login', { email: 'a@fondo.mx', password: PASSWORD }); await d.post('/api/auth/logout');
+  assert.equal((await d.get('/api/session', { headers: { 'X-EnRuta-Background': '1' } })).body.code, 'SESSION_REVOKED');
+  await own.stop(); own.cleanup();
+});
+
+test('eventos de seguridad propios y baja de la foto de perfil', async () => {
+  const u = await createUser(app, admin, { email: 'seg@login.mx' });
+  await u.client.put('/api/me', { name: 'Seg Nuevo' }); await u.client.put('/api/me/password', { currentPassword: PASSWORD, newPassword: 'Nueva-Clave-456' });
+  const ev = (await u.client.get('/api/me/security-events')).body.map((e) => e.action); assert.ok(ev.includes('profile.updated') && ev.includes('auth.password_changed') && ev.includes('auth.login'));
+  assert.ok(ev.every((a) => /^(auth|profile)\./.test(a)));
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32, 1)]);
+  await u.client.request('POST', '/api/me/avatar', png, { raw: true, headers: { 'Content-Type': 'image/png' } }); assert.equal((await u.client.get('/api/session')).body.user.hasAvatar, true);
+  assert.equal((await u.client.delete('/api/me/avatar')).status, 200); assert.equal((await u.client.get('/api/session')).body.user.hasAvatar, false); assert.equal((await u.client.get('/api/me/avatar')).status, 404);
+});

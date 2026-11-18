@@ -44,7 +44,7 @@ function createAuthService({ config, store, queue, adapters, clock }) {
   }
 
   /** Convierte un token de sesión en el contexto de la petición, o lanza 401. */
-  async function authenticate(token) {
+  async function authenticate(token, { touch = true } = {}) {
     if (!token) throw unauthorized('NO_SESSION');
     const hash = sha256(token); const t = clock();
     const out = await store.read(async (r) => {
@@ -65,7 +65,7 @@ function createAuthService({ config, store, queue, adapters, clock }) {
     if (out.revoke) await store.tx((r) => r.sessions.revoke(out.revoke.id, 'USER_INACTIVE', nowIso()));
     if (out.error) throw out.error;
     const { s, user, company, permissions, role, centers } = out;
-    if (t - Date.parse(s.last_seen_at) > 60_000) await store.tx((r) => r.sessions.touch(s.id, nowIso()));
+    if (touch && t - Date.parse(s.last_seen_at) > 60_000) await store.tx((r) => r.sessions.touch(s.id, nowIso()));
     const ids = centers.filter((c) => c.status === 'ACTIVE').map((c) => c.id);
     const centerId = s.center_id && ids.includes(s.center_id) ? s.center_id : null;   // null = todos los centros accesibles
     const perms = new Set(permissions);

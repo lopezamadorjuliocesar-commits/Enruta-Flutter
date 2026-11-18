@@ -1,6 +1,6 @@
 import { isPlatformBrowser } from '@angular/common';
 import { AfterViewInit, ChangeDetectorRef, Component, DoCheck, ElementRef, EventEmitter, Input, NgZone, OnDestroy, Output, PLATFORM_ID, ViewChild, inject } from '@angular/core';
-import { MAPBOX_TOKEN } from './config';
+import { NetworkInfo } from './network.service';
 import { EnrutaState } from './enruta-state.service';
 
 let geoNotified = false;
@@ -34,6 +34,7 @@ export class RouteMapComponent implements AfterViewInit, DoCheck, OnDestroy {
 
   status = 'Cargando mapa…';
   private readonly zone = inject(NgZone);
+  private readonly network = inject(NetworkInfo);
   private readonly changeDetector = inject(ChangeDetectorRef);
   private readonly platform = inject(PLATFORM_ID);
   private readonly appState = inject(EnrutaState);
@@ -45,10 +46,11 @@ export class RouteMapComponent implements AfterViewInit, DoCheck, OnDestroy {
 
   async ngAfterViewInit(): Promise<void> {
     if (!isPlatformBrowser(this.platform)) return;
+    if (!this.network.state().mapboxToken) { this.status = 'Mapa no disponible: el servidor no entregó un token de Mapbox (MAPBOX_PUBLIC_TOKEN).'; this.changeDetector.markForCheck(); return; }
     try {
       const mod: any = await import('mapbox-gl/dist/mapbox-gl-csp');
       this.gl = mod.default ?? mod;
-      this.gl.accessToken = MAPBOX_TOKEN;
+      this.gl.accessToken = this.network.state().mapboxToken;
       this.gl.workerUrl = new URL('assets/mapbox-gl-csp-worker.js', document.baseURI).toString();
       this.gl.workerCount = 1;
       this.gl.prewarm();

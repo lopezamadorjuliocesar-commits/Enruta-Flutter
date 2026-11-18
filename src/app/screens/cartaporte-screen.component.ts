@@ -1,5 +1,5 @@
 import { CurrencyPipe, DatePipe } from '@angular/common';
-import { Component, Input, OnDestroy, OnInit, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, OnDestroy, OnInit, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService, CartaPorteFiscalDocument } from '../core/api.service';
 import type { EnrutaState } from '../core/enruta-state.service';
@@ -11,6 +11,9 @@ import {
 @Component({
   selector: 'app-cartaporte-screen',
   standalone: true,
+  // Transitorio (Fase 2.A): Angular 22 usa OnPush por defecto y estas pantallas leen campos simples de EnrutaState.
+  // Se migran a signals + OnPush pantalla por pantalla; mientras tanto se actualizan en cada turno de la zona.
+  changeDetection: ChangeDetectionStrategy.Default,
   imports: [FormsModule, CurrencyPipe, DatePipe],
   templateUrl: './cartaporte-screen.component.html',
 })

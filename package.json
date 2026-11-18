@@ -7,8 +7,12 @@
     "start:backend": "npm --prefix backend start",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test",
-    "serve:ssr:enruta-app": "node dist/enruta-app/server/server.mjs"
+    "test": "ng test --watch=false",
+    "serve:ssr:enruta-app": "node dist/enruta-app/server/server.mjs",
+    "seed:reset": "npm --prefix backend run seed:reset",
+    "test:backend": "npm --prefix backend test",
+    "e2e:phase1": "node e2e/phase1.smoke.cjs",
+    "migrate": "npm --prefix backend run migrate"
   },
   "private": true,
   "dependencies": {

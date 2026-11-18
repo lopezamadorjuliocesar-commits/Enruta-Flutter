@@ -1,3 +1,4 @@
+@if (state.network.backendDown()) { <div class="toast-message toast-error" role="alert" style="position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:50"><p>No se pudo conectar con el servidor EnRuta. Inicia el backend (<code>npm run start:backend</code>) y recarga la página.</p></div> }
 @if (!state.authenticated || routedAuth) {
   <div class="auth-shell">
     <aside class="auth-brand">
@@ -10,7 +11,7 @@
             @case ('reset-password') { Crea una contraseña nueva }
             @case ('verify') { Una capa más de seguridad }
             @case ('recover') { ¿Olvidaste tu contraseña? }
-            @case ('reset') { Crea una contraseña nueva }
+            @case ('dev-mailbox') { Correo local de desarrollo }
             @case ('register') { Empieza con EnRuta }
             @case ('plan') { Elige cómo quieres operar }
             @case ('submitted') { Solicitud enviada }
@@ -36,7 +37,6 @@
           @case ('login') {<app-screen-boundary [screen]="screens.login" [app]="state" />}
           @case ('verify') {<app-screen-boundary [screen]="screens.verify" [app]="state" />}
           @case ('recover') {<app-screen-boundary [screen]="screens.recover" [app]="state" />}
-          @case ('reset') {<app-screen-boundary [screen]="screens.reset" [app]="state" />}
           @case ('register') {<app-screen-boundary [screen]="screens.register" [app]="state" />}
           @case ('plan') {<app-screen-boundary [screen]="screens.plan" [app]="state" />}
           @case ('submitted') {<app-screen-boundary [screen]="screens.submitted" [app]="state" />}

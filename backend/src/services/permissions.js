@@ -25,7 +25,7 @@ const FIELD = ['deliveries.execute', 'payments.collect', 'discounts.apply', 'rou
 const SYSTEM_ROLES = [
   { name: 'Administrador', description: 'Acceso total a la empresa.', maxDiscountBp: 10000, permissions: ALL },
   { name: 'Supervisor', description: 'Opera rutas, aprobaciones y liquidaciones de sus centros.', maxDiscountBp: 1500,
-    permissions: ALL.filter((c) => !['users.manage', 'roles.manage', 'config.publish', 'fiscal.manage', 'centers.manage', 'centers.all'].includes(c)) },
+    permissions: ALL.filter((c) => !['users.manage', 'roles.manage', 'config.manage', 'config.publish', 'fiscal.manage', 'centers.manage', 'centers.all'].includes(c)) },
   { name: 'Repartidor', description: 'Entrega, cobra y captura evidencia en ruta.', maxDiscountBp: 500, permissions: FIELD },
   { name: 'Preventista', description: 'Toma pedidos de preventa y visita clientes.', maxDiscountBp: 500, permissions: [...FIELD, 'clients.write'] },
 ];

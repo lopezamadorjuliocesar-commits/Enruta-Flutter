@@ -1,5 +1,5 @@
-import { Injectable } from '@angular/core';
-import { API_KEY, API_URL } from './config';
+import { Injectable, inject } from '@angular/core';
+import { ApiClient, ApiError } from './http/api-client';
 
 export type TokenCheck =
   | { status: 'valid'; email: string }
@@ -11,42 +11,37 @@ export type ResetOutcome =
   | { status: 'weak'; message: string }
   | { status: 'unavailable'; message: string };
 
-/** Cliente del backend para el restablecimiento de contraseña (JWT + Nodemailer, sin base de datos). */
+/** Recuperación de contraseña contra el backend: token de un solo uso guardado en BD (15 min). */
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private async call(method: 'GET' | 'POST', path: string, body?: unknown): Promise<{ status: number; data: any }> {
-    const response = await fetch(`${API_URL}${path}`, {
-      method, headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    return { status: response.status, data: await response.json().catch(() => ({})) };
-  }
+  private readonly api = inject(ApiClient);
 
   async forgotPassword(email: string): Promise<{ ok: boolean; message: string }> {
-    try {
-      const r = await this.call('POST', '/api/auth/forgot-password', { email });
-      if (r.status === 200) return { ok: true, message: r.data?.message ?? 'Te enviamos un enlace de recuperación.' };
-      if (r.status === 429) return { ok: false, message: 'Demasiadas solicitudes. Inténtalo en unos minutos.' };
-      return { ok: false, message: r.data?.message ?? 'No fue posible enviar el correo. Inténtalo nuevamente.' };
-    } catch { return { ok: false, message: 'No fue posible conectar con el servidor. Inténtalo nuevamente.' }; }
+    try { const r = await this.api.post<{ message: string }>('/auth/forgot-password', { email }, { keepAlive: true }); return { ok: true, message: r.message }; }
+    catch (e) {
+      if (e instanceof ApiError && e.status === 429) return { ok: false, message: 'Demasiadas solicitudes. Inténtalo en unos minutos.' };
+      if (e instanceof ApiError && e.status !== 0) return { ok: false, message: e.message };
+      return { ok: false, message: 'No fue posible conectar con el servidor. Inténtalo nuevamente.' };
+    }
   }
 
   async validateResetToken(token: string): Promise<TokenCheck> {
-    try {
-      const r = await this.call('GET', `/api/auth/validate-reset-token?token=${encodeURIComponent(token)}`);
-      if (r.status === 200 && r.data?.valid === true && typeof r.data.email === 'string') return { status: 'valid', email: r.data.email };
-      if ((r.status === 400 || r.status === 410) && r.data?.valid === false) return { status: 'invalid', reason: r.data.reason ?? 'INVALID' };
+    try { const r = await this.api.get<{ valid: boolean; email: string }>('/auth/reset-password/validate', { params: { token }, keepAlive: true }); return { status: 'valid', email: r.email }; }
+    catch (e) {
+      if (e instanceof ApiError && (e.status === 400 || e.status === 410)) { const reason = (e.body as { reason?: string } | null)?.reason ?? 'INVALID'; return { status: 'invalid', reason: reason as 'INVALID' }; }
       return { status: 'unavailable' };
-    } catch { return { status: 'unavailable' }; }
+    }
   }
 
   async resetPassword(token: string, newPassword: string): Promise<ResetOutcome> {
-    try {
-      const r = await this.call('POST', '/api/auth/reset-password', { token, newPassword });
-      if (r.status === 200 && r.data?.ok === true && typeof r.data.email === 'string') return { status: 'ok', email: r.data.email };
-      if (r.status === 422) return { status: 'weak', message: r.data?.message ?? 'La contraseña no cumple los requisitos.' };
-      if (r.status === 400 || r.status === 410) return { status: 'invalid', reason: r.data?.reason ?? 'INVALID' };
-      return { status: 'unavailable', message: r.data?.message ?? 'No fue posible completar el cambio. Inténtalo nuevamente.' };
-    } catch { return { status: 'unavailable', message: 'No fue posible conectar con el servidor. Inténtalo nuevamente.' }; }
+    try { const r = await this.api.post<{ email: string }>('/auth/reset-password', { token, newPassword }, { keepAlive: true }); return { status: 'ok', email: r.email }; }
+    catch (e) {
+      if (e instanceof ApiError) {
+        if (e.status === 422) return { status: 'weak', message: e.message };
+        if (e.status === 400 || e.status === 410) return { status: 'invalid', reason: e.code.replace('RESET_', '') || 'INVALID' };
+        if (e.status !== 0) return { status: 'unavailable', message: e.message };
+      }
+      return { status: 'unavailable', message: 'No fue posible conectar con el servidor. Inténtalo nuevamente.' };
+    }
   }
 }

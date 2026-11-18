@@ -53,6 +53,7 @@ function createConfig(env = process.env, overrides = {}) {
     dbPath: envStr(env, 'DB_PATH', path.join(BACKEND_ROOT, 'data', 'enruta.sqlite')),
     storageDir: envStr(env, 'STORAGE_DIR', path.join(BACKEND_ROOT, 'storage')),
     publicWebUrl,
+    publicApiUrl: envStr(env, 'PUBLIC_API_URL', 'http://localhost:3000').replace(/\/+$/, ''),
     corsOrigins: [...new Set([publicWebUrl, 'http://localhost:4200', 'http://127.0.0.1:4200', ...envStr(env, 'CORS_ORIGINS', '').split(',').map((s) => s.trim()).filter(Boolean)])],
     cookieSecure: envBool(env, 'COOKIE_SECURE', false),
     sessionIdleMinutes: envInt(env, 'SESSION_IDLE_MINUTES', 12 * 60),

@@ -7,7 +7,7 @@ const { detectImage } = require('../storage/file-store');
 const h = require('../middleware/http');
 
 module.exports = function createRoutes({ config, store, queue, services, adapters, files, clock }) {
-  const { auth, admin, catalog, fiscal } = services;
+  const { auth, admin, catalog, fiscal, fleet } = services;
   const router = express.Router();
   const { wrap, meta, requirePermission: need, requireAnyPermission: needAny } = h;
   const authed = h.requireAuth(auth);
@@ -31,11 +31,17 @@ module.exports = function createRoutes({ config, store, queue, services, adapter
       modes: { rfc: adapters.rfc.describe(), mail: adapters.mail.describe(), pac: { mode: config.pacMode === 'live' ? 'live' : 'local', simulated: config.pacMode !== 'live' } } });
   }));
   router.get('/system/network', (_req, res) => {
-    const loop = isLoopbackUrl(config.publicWebUrl);
-    res.json({ publicWebUrl: config.publicWebUrl, lanAddresses: lanAddresses(), isLoopback: loop,
-      warning: loop ? 'PUBLIC_WEB_URL apunta a localhost: un teléfono no podrá abrir el QR. Configura la IP de tu red local (p. ej. http://192.168.1.50:4200).' : null });
+    const loop = isLoopbackUrl(config.publicWebUrl) || isLoopbackUrl(config.publicApiUrl);
+    res.json({ publicWebUrl: config.publicWebUrl, publicApiUrl: config.publicApiUrl, lanAddresses: lanAddresses(), isLoopback: loop,
+      warning: loop ? 'PUBLIC_WEB_URL / PUBLIC_API_URL apuntan a localhost: un teléfono no podrá usar el QR. Configura la IP de tu red local (p. ej. http://192.168.1.50:4200 y http://192.168.1.50:3000).' : null });
   });
-  router.get('/system/client-config', (_req, res) => res.json({ mapboxToken: config.mapboxPublicToken, mailMode: config.mailMode, localMail: config.mailMode === 'local' && !config.production }));
+  // Contrato móvil: el dispositivo confirma la vinculación con el token del QR (sin sesión de usuario).
+  router.post(['/mobile/link', '/mobile/v1/link'], limiter(30, 60_000), wrap(async (req, res) => res.json(await fleet.mobileLink(req.body || {}))));
+  router.get('/system/client-config', wrap(async (_req, res) => {
+    const localMail = config.mailMode === 'local' && !config.production;
+    const demoHint = localMail && !!(await store.read((r) => r.users.findByEmail('demo@enruta.mx')));   // solo si `seed:reset` sembró el perfil de prueba
+    res.json({ mapboxToken: config.mapboxPublicToken, mailMode: config.mailMode, localMail, demoHint });
+  }));
 
   router.post('/companies/validate-rfc', limiter(6, 60_000), wrap(async (req, res) => { const r = await auth.validateRfc(req.body || {}); res.status(r.httpStatus).json(r.body); }));
   router.post('/companies/register', limiter(10, 60_000), wrap(async (req, res) => {
@@ -79,6 +85,12 @@ module.exports = function createRoutes({ config, store, queue, services, adapter
   router.post('/auth/mfa/confirm', limiter(20, 15 * 60_000), wrap(async (req, res) => res.json(await auth.mfaConfirm(req.ctx, req.body || {}))));
   router.post('/auth/mfa/disable', limiter(20, 15 * 60_000), wrap(async (req, res) => res.json(await auth.mfaDisable(req.ctx, req.body || {}))));
 
+  router.get('/me/security-events', wrap(async (req, res) => res.json(await admin.audits.mine(req.ctx))));
+  router.delete('/me/avatar', wrap(async (req, res) => {
+    const u = await store.read((r) => r.users.getById(req.ctx.userId));
+    if (u.avatar_path) { await files.remove(u.avatar_path); await store.tx((r) => r.users.update(req.ctx.companyId, req.ctx.userId, { avatar_path: null })); }
+    res.json({ ok: true });
+  }));
   router.post('/me/avatar', express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: '2mb' }), wrap(async (req, res) => {
     if (!Buffer.isBuffer(req.body) || !req.body.length) throw unprocessable('Envía una imagen PNG, JPEG o WebP (máx. 2 MB).', 'IMAGE_REQUIRED');
     const kind = detectImage(req.body); if (!kind) throw unprocessable('El archivo no es una imagen válida.', 'IMAGE_INVALID');
@@ -134,6 +146,26 @@ module.exports = function createRoutes({ config, store, queue, services, adapter
   router.get('/fiscal/carta-porte', need('fiscal.manage'), wrap(async (req, res) => res.json(await fiscal.list(req.ctx))));
   router.get('/fiscal/carta-porte/:id', need('fiscal.manage'), wrap(async (req, res) => res.json(await fiscal.get(req.ctx, req.params.id))));
   router.get('/fiscal/carta-porte/:id/xml', need('fiscal.manage'), wrap(async (req, res) => res.json(await fiscal.stampedXml(req.ctx, req.params.id))));
+
+  // Conductores, vehículos y dispositivos (puerto de la versión anterior; la Fase 2 añade SSE, revocación y vista de repartidor)
+  const dev = need('devices.manage');
+  router.get('/drivers', dev, wrap(async (req, res) => res.json(await fleet.drivers.list(req.ctx))));
+  router.post('/drivers', dev, wrap(async (req, res) => res.status(201).json(await fleet.drivers.create(req.ctx, req.body || {}))));
+  router.post('/drivers/sync', dev, wrap(async (req, res) => res.json(await fleet.drivers.sync(req.ctx, req.body?.drivers))));
+  router.put('/drivers/:id', dev, wrap(async (req, res) => res.json(await fleet.drivers.update(req.ctx, req.params.id, req.body || {}))));
+  router.delete('/drivers/:id', dev, wrap(async (req, res) => { await fleet.drivers.remove(req.ctx, req.params.id); res.status(204).end(); }));
+  router.get('/vehicles', dev, wrap(async (req, res) => res.json(await fleet.vehicles.list(req.ctx))));
+  router.post('/vehicles', dev, wrap(async (req, res) => res.status(201).json(await fleet.vehicles.create(req.ctx, req.body || {}))));
+  router.put('/vehicles/:id', dev, wrap(async (req, res) => res.json(await fleet.vehicles.update(req.ctx, req.params.id, req.body || {}))));
+  router.delete('/vehicles/:id', dev, wrap(async (req, res) => { await fleet.vehicles.remove(req.ctx, req.params.id); res.status(204).end(); }));
+  router.get('/devices', dev, wrap(async (req, res) => res.json(await fleet.devices.list(req.ctx))));
+  router.post('/devices/link-qr', dev, wrap(async (req, res) => res.status(201).json(await fleet.devices.linkQr(req.ctx))));
+  router.get('/devices/link-qr/:jti', dev, wrap(async (req, res) => res.json(await fleet.devices.linkQrStatus(req.ctx, req.params.jti))));
+  router.get('/devices/:id', dev, wrap(async (req, res) => res.json(await fleet.devices.get(req.ctx, req.params.id))));
+  router.post('/devices', dev, wrap(async (req, res) => res.status(201).json(await fleet.devices.create(req.ctx, req.body || {}))));
+  router.put('/devices/:id', dev, wrap(async (req, res) => res.json(await fleet.devices.update(req.ctx, req.params.id, req.body || {}))));
+  router.delete('/devices/:id', dev, wrap(async (req, res) => { await fleet.devices.remove(req.ctx, req.params.id); res.status(204).end(); }));
+  router.post('/devices/:id/link-token', dev, wrap(async (req, res) => res.json(await fleet.devices.linkToken(req.ctx, req.params.id))));
 
   // Estado de la cola de la empresa
   router.get('/queue/jobs', need('config.manage'), wrap(async (req, res) => {

@@ -1,7 +1,7 @@
 # EnRuta — Decisiones técnicas y arquitectura objetivo
 
-> Documento vivo. Versión 0 (diagnóstico + arquitectura). Fecha: 2026-11-17.
-> Ninguna línea de código se ha modificado todavía; este documento fija **qué** se construirá y **por qué**.
+> Documento vivo. Versión 1 (Fase 1 implementada). Fecha: 2026-11-18.
+> Las secciones 1–5 son el diseño original; la **sección 6** registra lo que cambió o se confirmó al implementar la Fase 1 y **prevalece** sobre el texto original cuando difieren.
 > Cada decisión lleva un identificador `DT-xx` que se cita en el código, en los commits y en `PLAN_AVANCE.md`.
 
 ---
@@ -376,3 +376,37 @@ Puntos a corregir explícitamente: login/logout, validación RFC, CRUD, mapa, te
 | Datos de `localStorage` existentes | Se descartan, no se importan | DT-51 |
 | Integraciones sin implementación | "No disponible en esta versión" | DT-31 |
 | Mapbox sin Internet | Degradación a línea recta "estimado" | DT-33 |
+
+
+---
+
+## 6. Ajustes y hallazgos de la Fase 1 (prevalecen sobre las secciones 1–5)
+
+| Ref. | Ajuste | Motivo |
+|---|---|---|
+| DT-01 | `better-sqlite3` **13.2.0** instalado y verificado con Node 22.23 (SQLite 3.53). | Confirmado. |
+| DT-06 | **Un usuario = un rol** (`users.role_id`); no existe la tabla `user_roles`. Se omiten `idempotency_keys` y `login_attempts` (los intentos fallidos viven en `users`). Las migraciones reales son `001_core`, `002_catalog` (solo `clients` y `products`), `003_fiscal` (Carta Porte) y `004_fleet`. El resto de tablas llega con su fase. | Coincide con la UI (un rol por usuario) y evita tablas sin uso. |
+| DT-08/09 | Sesión opaca con hash en BD y cookie `enruta_sid` `HttpOnly; SameSite=Lax; Path=/api`. Bearer solo si el cliente declara `X-EnRuta-Client: mobile` (el token viaja en el cuerpo del login). Anti-CSRF: toda petición mutante exige `X-EnRuta-Client` salvo `/api/mobile/*` y las que usan Bearer. | Implementado y probado. |
+| DT-11 | Respuesta genérica única para credenciales erróneas, cuenta bloqueada o usuario inactivo (`INVALID_CREDENTIALS`). 5 fallos en una ventana de 15 min bloquean 15 min. Cada petición revalida sesión y usuario: inactivar = bloqueo inmediato (`USER_INACTIVE`). | Sin enumeración de cuentas. |
+| DT-11b | El sondeo del navegador (`GET /api/session` cada 30 s) lleva `X-EnRuta-Background: 1` y **no renueva la inactividad**. | Detectar un cierre remoto sin mantener viva una sesión abandonada. |
+| DT-13 | Bandeja local: `GET /api/dev/mailbox` y vista `/dev/correo`. Los correos pasan por la cola (`SEND_MAIL`) y el token se borra del `payload` al enviar. | Probado desde un segundo navegador. |
+| DT-15 | El registro **abre sesión** y la UI entra directo al panel (la pantalla «Solicitud enviada» queda sin uso). | Evita un segundo login inmediato. |
+| DT-16/18 | El centro activo vive en la sesión; el alcance de un usuario son sus centros asignados (o todos con `centers.all`). El acceso por ID a un recurso de otro centro responde 404. | Probado en `tenant-isolation.test.js`. |
+| DT-21 | El rol **Supervisor** tampoco recibe `config.manage` (conserva la restricción previa sobre Configuración/Parámetros/Formularios/Marca). Se añadió `users.read` al catálogo (Supervisor puede listar usuarios). | Paridad con las restricciones de la UI anterior. |
+| DT-26 | `PUBLIC_API_URL` (además de `PUBLIC_WEB_URL`) se emite en el token del QR y en `GET /api/system/network`. El QR sigue siendo `{v:1, api, token}`; la versión «URL con fragmento» se pospone a la Fase 2. | Mantener compatibilidad con la app móvil existente. |
+| DT-30/32 | `PAC_MODE=local` es alias de `sandbox`. `loadEnvFile` rellena variables vacías sin pisar las reales. Las pruebas reproducen el caso `IDOO_API_KEY` heredado vacío. | Corrige el defecto H14. |
+| DT-33 | El token público de Mapbox lo entrega `GET /api/system/client-config`. Su valor por defecto es el `pk.` que ya estaba en el repositorio (público por diseño); sobrescríbelo con `MAPBOX_PUBLIC_TOKEN` y restríngelo por URL. Sin token, el mapa muestra un aviso en lugar de fallar. | Sin romper la demo actual. |
+| DT-48 | La cola reclama con `UPDATE … RETURNING`, `lease` de 60 s y backoff `min(2^intentos × 2 s, 5 min)`. Una `PermanentError` pasa directo a `DEAD`. | 8 pruebas, incluida la recuperación tras reinicio. |
+| DT-49 | **Hallazgo clave:** en Angular 22 un componente sin `changeDetection` explícito es **OnPush**. Por eso los campos simples mutados tras un `await` no repintaban la vista (causa raíz de los fallos de actualización). Fase 1: las pantallas que leen campos simples de `EnrutaState` y `AppComponent` declaran `ChangeDetectionStrategy.Default` de forma **transitoria**; los componentes nuevos o tocados (recuperación, bandeja, RFC, sesión, permisos) usan **signals**. La migración pantalla por pantalla a signals + OnPush es la Fase 2.A. | Confirmado con Playwright (el estado cambiaba pero la vista no). |
+| DT-49b | `provideHttpClient` **sin** `withFetch()`: el backend fetch de HttpClient ejecuta la petición fuera de la zona. Se usa XHR (parcheado por zone.js). | Evitar vistas obsoletas con Zone.js. |
+| DT-51 | Se purga `enruta.accounts`, `enruta.session`, `enruta.sid`, `enruta.recovery` y `enruta.data.*`. Los módulos aún sin API guardan **temporalmente** su estado en `enruta.interim.v1.<empresaId>.<centroId>` (IDs, no nombres), y se vacía y recarga al cambiar de empresa/centro. Desaparece conforme las Fases 2–3 migran cada módulo. | Respeta «backend única fuente de verdad» para identidad, usuarios, roles, permisos, sesiones y dispositivos, sin romper pantallas pendientes. |
+| DT-56 | `docker-compose.yml` con un solo servicio `api` (Node 22). **No se probó** con Docker en este entorno. | Sin daemon de Docker disponible. |
+| — | `drivers`, `vehicles`, `devices`, QR y `/api/mobile/link` se **portaron en la Fase 1** (planeados para la 2.D) para no perder una función que ya operaba. La Fase 2 añade SSE, revocación en vivo y la vista de repartidor. | «Conserva lo que ya funcione». |
+| — | `clients` y `products` existen en backend (con alcance por centro/empresa) como vehículo de las pruebas de aislamiento; la **UI** de clientes/productos sigue sobre el estado temporal hasta la Fase 2.B. | Requiere migrar rutas y planeador a la vez. |
+
+### Pendientes conocidos de la Fase 1 (no resueltos)
+1. `ScreenBoundaryComponent` no captura errores de **interacción** bajo Angular 22 (los listeners reportan al `ErrorHandler` del entorno, no al del componente). Su prueba está marcada `xit` con la explicación. Sí captura fallos de renderizado.
+2. Los toasts y varias pantallas dependen aún de `ChangeDetectionStrategy.Default` (ver DT-49).
+3. El SSO corporativo no existe: el botón figura como «no disponible».
+4. Notificaciones del backend (bloqueos, etc.) aún no se muestran en la UI (la lista visible sigue siendo la temporal).
+5. Las preferencias de perfil y el logo/marca siguen locales (Fase 3).

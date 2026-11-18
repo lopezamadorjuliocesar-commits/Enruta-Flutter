@@ -2,7 +2,7 @@
 
 > Lista de avance viva. Cada fase se **compila y prueba** antes de iniciar la siguiente.
 > Referencias `DT-xx` → `DECISIONES_TECNICAS.md`. Estado: ☐ pendiente · ◐ en curso · ☑ terminado y verificado.
-> Fecha de creación: 2026-11-17. Estado global: **Fase 0 (diagnóstico) terminada; sin cambios de código.**
+> Fecha de creación: 2026-11-17. Estado global: **Fases 0 y 1 terminadas y verificadas. Siguiente: Fase 2.**
 
 ## Comandos de verificación por fase (salida filtrada)
 
@@ -37,46 +37,49 @@ npx playwright test --reporter=line --trace off
 ## Fase 1 — Núcleo, persistencia, auth y aislamiento
 
 ### 1.A Infraestructura backend (DT-01…05, 24, 32, 53, 54, 56, 58)
-- ☐ `backend/package.json`: añadir `better-sqlite3`, `bcryptjs`; scripts `start`, `dev`, `migrate`, `seed:reset`, `test`.
-- ☐ `src/config/index.js` con `envStr()` (vacío = no definido) y carga de `.env` que rellena vacíos sin pisar valores (DT-32).
-- ☐ `src/db/sqlite.js` (PRAGMAs, mutex, `uow.run`) y `src/db/migrator.js` + `schema_migrations` con checksum.
-- ☐ `migrations/001_core.sql` (empresas, centros, zonas, usuarios, roles, permisos, sesiones, tokens, auditoría, notificaciones, dev_mailbox, idempotencia, jobs_queue, company_validations).
-- ☐ `src/app.js` (sin listen) / `src/server.js` (`HOST=0.0.0.0`, advertencia `PUBLIC_WEB_URL` localhost).
-- ☐ `GET /api/health` (BD + cola + modo de adaptadores), `GET /api/system/network`, `GET /api/system/client-config` (token Mapbox público).
-- ☐ `scripts/seed-reset.js` (`--yes` obligatorio; prohibido en producción): 2 empresas demo, centros, zonas, usuarios de cada rol, clientes geolocalizados, productos, listas de precios, rutas en varios estados. Mantiene `demo@enruta.mx / Demo12345678`.
-- ☐ `docker-compose.yml` de un servicio con volúmenes `data/` y `storage/`; `.env.example` raíz y `backend/.env.example` sin secretos.
+- ☑ `backend/package.json`: añadir `better-sqlite3`, `bcryptjs`; scripts `start`, `dev`, `migrate`, `seed:reset`, `test`.
+- ☑ `src/config/index.js` con `envStr()` (vacío = no definido) y carga de `.env` que rellena vacíos sin pisar valores (DT-32).
+- ☑ `src/db/sqlite.js` (PRAGMAs, mutex, `uow.run`) y `src/db/migrator.js` + `schema_migrations` con checksum.
+- ☑ `migrations/001_core.sql` (empresas, centros, zonas, usuarios, roles, permisos, sesiones, tokens, auditoría, notificaciones, dev_mailbox, idempotencia, jobs_queue, company_validations).
+- ☑ `src/app.js` (sin listen) / `src/server.js` (`HOST=0.0.0.0`, advertencia `PUBLIC_WEB_URL` localhost).
+- ☑ `GET /api/health` (BD + cola + modo de adaptadores), `GET /api/system/network`, `GET /api/system/client-config` (token Mapbox público).
+- ☑ `scripts/seed-reset.js` (`--yes` obligatorio; prohibido en producción): 2 empresas demo, centros, zonas, usuarios de cada rol, clientes geolocalizados, productos, listas de precios, rutas en varios estados. Mantiene `demo@enruta.mx / Demo12345678`.
+- ☑ `docker-compose.yml` de un servicio con volúmenes `data/` y `storage/` (**sin probar con Docker**: no hay daemon en el entorno de desarrollo); `.env.example` raíz y `backend/.env.example` sin secretos.
 - **Criterio:** reiniciar el backend conserva datos; `seed:reset --yes` repone demo; pruebas usan `:memory:`.
 
 ### 1.B Repositorios (DT-04, 06, 16)
-- ☐ `repositories/index.js` + implementaciones SQLite: companies, centers, zones, users, roles, permissions, sessions, audit, notifications, settings.
-- ☐ Todos los métodos reciben `ctx` y filtran por `company_id` (y `center_id` cuando aplica).
-- ☐ Prueba: repositorio con `ctx` de empresa A no ve registros de B (404).
+- ☑ `repositories/index.js` + implementaciones SQLite: companies, centers, zones, users, roles, permissions, sessions, audit, notifications (+ clients, products, jobs, mailbox, Carta Porte, dispositivos). `settings` se difiere a la Fase 3.C.
+- ☑ Todos los métodos reciben `ctx` y filtran por `company_id` (y `center_id` cuando aplica).
+- ☑ Prueba: repositorio con `ctx` de empresa A no ve registros de B (404).
 
 ### 1.C Autenticación (DT-07…15)
-- ☐ `POST /api/companies/validate-rfc` (adaptador RFC local/idoo), `POST /api/companies/register` (empresa + admin + roles + sesión en una transacción).
-- ☐ `POST /api/auth/login`, `POST /api/auth/mfa/verify`, `POST /api/auth/logout`, `GET /api/session`, `PUT /api/session/center`.
-- ☐ `GET /api/auth/sessions`, `DELETE /api/auth/sessions/:id`, `DELETE /api/auth/sessions?others=1`.
-- ☐ Bloqueo 5 intentos/15 min, rate-limit por IP, revocación inmediata al inactivar usuario.
-- ☐ `POST /api/auth/forgot-password`, `GET /api/auth/reset-password/validate`, `POST /api/auth/reset-password` (token en BD, un uso, revoca sesiones).
-- ☐ Adaptador de correo `local|smtp`; `GET /api/dev/mailbox` (solo `MAIL_MODE=local`).
-- ☐ 2FA TOTP: `POST /api/auth/mfa/setup`, `/confirm`, `/disable`.
-- ☐ Perfil: `PUT /api/me`, `PUT /api/me/password`, avatar en `storage/avatars`.
-- ☐ Eliminar middleware `x-api-key`/`x-company` y `ADMIN_API_KEY`.
+- ☑ `POST /api/companies/validate-rfc` (adaptador RFC local/idoo), `POST /api/companies/register` (empresa + admin + roles + sesión en una transacción).
+- ☑ `POST /api/auth/login`, `POST /api/auth/mfa/verify`, `POST /api/auth/logout`, `GET /api/session`, `PUT /api/session/center`.
+- ☑ `GET /api/auth/sessions`, `DELETE /api/auth/sessions/:id`, `DELETE /api/auth/sessions?others=1`.
+- ☑ Bloqueo 5 intentos/15 min, rate-limit por IP, revocación inmediata al inactivar usuario.
+- ☑ `POST /api/auth/forgot-password`, `GET /api/auth/reset-password/validate`, `POST /api/auth/reset-password` (token en BD, un uso, revoca sesiones).
+- ☑ Adaptador de correo `local|smtp`; `GET /api/dev/mailbox` (solo `MAIL_MODE=local`).
+- ☑ 2FA TOTP: `POST /api/auth/mfa/setup`, `/confirm`, `/disable`.
+- ☑ Perfil: `PUT /api/me`, `PUT /api/me/password`, avatar en `storage/avatars`.
+- ☑ Eliminar middleware `x-api-key`/`x-company` y `ADMIN_API_KEY`.
 
 ### 1.D RBAC (DT-20…22)
-- ☐ Siembra de `permissions` y roles de sistema con `max_discount_bp`.
-- ☐ `middleware/require-permission.js`; aplicado a todas las rutas.
-- ☐ `GET/POST/PUT /api/roles`, `PUT /api/roles/:id/permissions`; `GET/POST/PUT /api/users`, `PATCH /api/users/:id/status`.
+- ☑ Siembra de `permissions` y roles de sistema con `max_discount_bp`.
+- ☑ `middleware/require-permission.js`; aplicado a todas las rutas.
+- ☑ `GET/POST/PUT /api/roles`, `PUT /api/roles/:id/permissions`; `GET/POST/PUT /api/users`, `PATCH /api/users/:id/status`.
 
 ### 1.E Frontend núcleo (DT-07, 09, 19, 22, 50, 51, 52)
-- ☐ `provideHttpClient(withFetch(), withInterceptors([...]))`; `ApiClient` con `X-EnRuta-Client` y `withCredentials`.
-- ☐ `SessionStore` / `ScopeStore` (epoch) / `PermissionStore`; directiva `*appCan`; guard `canMatch`.
-- ☐ Quitar `API_KEY` y `MAPBOX_TOKEN` de `core/config.ts`; `API_URL` relativo (`/api`).
-- ☐ Login, registro, verificación 2FA, recuperación, perfil, sesiones, usuarios y editor de permisos conectados al backend.
-- ☐ Vista `/dev/correo` con banner "MODO LOCAL".
-- ☐ Limpieza única de claves heredadas de `localStorage`; `enruta.prefs.*` para preferencias.
-- ☐ Selector de centro real (lista de `GET /api/centers`), con reseteo de stores y cancelación de peticiones.
-- **Pruebas de salida de Fase 1:** escenarios 1, 2, 3, 17, 18, 19 (backend) + build + Karma.
+- ☑ `provideHttpClient(withFetch(), withInterceptors([...]))`; `ApiClient` con `X-EnRuta-Client` y `withCredentials`.
+- ☑ `SessionStore` / `ScopeStore` (epoch) / `PermissionStore`; directiva `*appCan`; guard `canMatch`.
+- ☑ Quitar `API_KEY` y `MAPBOX_TOKEN` de `core/config.ts`; la API es relativa (`/api`) y el token de Mapbox lo entrega el backend.
+- ☑ Login, registro, verificación 2FA, recuperación, perfil, sesiones, usuarios y editor de permisos conectados al backend.
+- ☑ Vista `/dev/correo` con banner "MODO LOCAL".
+- ◐ Limpieza única de claves heredadas de `localStorage` ☑. Preferencias visuales en `enruta.prefs.*`: aún no hay preferencias visuales que guardar; los módulos sin API usan almacenamiento **temporal** `enruta.interim.v1.<empresa>.<centro>` (ver DT-51).
+- ☑ Selector de centro real (lista de `GET /api/centers`), con reseteo de stores y cancelación de peticiones.
+- **Pruebas de salida de Fase 1 (ejecutadas):** escenarios 1, 2, 3, 16 (parte backend), 17, 18, 19 → **106/106 pruebas `node:test`**; Karma **22 correctas + 1 omitida** (`xit`, ver DECISIONES §6); `ng build` de producción sin errores; humo E2E en navegador **12/12**. Detalle en `ESTADO_IMPLEMENTACION.md`.
+
+**Añadido en la Fase 1 (no estaba en el plan):** puerto de dispositivos/QR/conductores/vehículos (antes 2.D), carta porte sobre la cola local (antes 3.E), `X-EnRuta-Background`, `GET /api/me/security-events`, `DELETE /api/me/avatar`, `README_LOCAL.md`.
+
 
 ---
 

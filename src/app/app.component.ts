@@ -1,5 +1,5 @@
 import { ValidateFormDirective } from './core/validate-form.directive';
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
 import { FormsModule } from '@angular/forms';
@@ -8,7 +8,6 @@ import { ScreenBoundaryComponent } from './core/screen-boundary.component';
 import { LoginScreenComponent } from './screens/login-screen.component';
 import { VerifyScreenComponent } from './screens/verify-screen.component';
 import { RecoverScreenComponent } from './screens/recover-screen.component';
-import { ResetScreenComponent } from './screens/reset-screen.component';
 import { RegisterScreenComponent } from './screens/register-screen.component';
 import { PlanScreenComponent } from './screens/plan-screen.component';
 import { SubmittedScreenComponent } from './screens/submitted-screen.component';
@@ -40,6 +39,9 @@ import { ContextScreenComponent } from './screens/context-screen.component';
 @Component({
   selector: 'app-root',
   standalone: true,
+  // Transitorio (Fase 2.A): Angular 22 usa OnPush por defecto y estas pantallas leen campos simples de EnrutaState.
+  // Se migran a signals + OnPush pantalla por pantalla; mientras tanto se actualizan en cada turno de la zona.
+  changeDetection: ChangeDetectionStrategy.Default,
   imports: [FormsModule, ScreenBoundaryComponent, ValidateFormDirective, RouterOutlet],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
@@ -53,7 +55,7 @@ export class AppComponent {
   constructor() {
     this.router.events.pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd)).subscribe((e) => {
       const path = e.urlAfterRedirects.split(/[?#]/)[0].replace(/^\/+|\/+$/g, '');
-      this.routedAuth = path === 'forgot-password' || path === 'reset-password' ? path : '';
+      this.routedAuth = path === 'forgot-password' || path === 'reset-password' ? path : path === 'dev/correo' ? 'dev-mailbox' : '';
       if (path === 'login' && !this.state.authenticated) this.state.authView = 'login';
     });
   }
@@ -61,7 +63,6 @@ export class AppComponent {
     login: LoginScreenComponent,
     verify: VerifyScreenComponent,
     recover: RecoverScreenComponent,
-    reset: ResetScreenComponent,
     register: RegisterScreenComponent,
     plan: PlanScreenComponent,
     submitted: SubmittedScreenComponent,

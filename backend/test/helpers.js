@@ -29,7 +29,7 @@ class Client {
     const set = res.headers.getSetCookie?.() ?? [];
     for (const c of set) { const [pair] = c.split(';'); if (pair.startsWith('enruta_sid=')) this.cookie = pair.endsWith('=') ? null : pair; }
     const text = await res.text(); let json = null; try { json = JSON.parse(text); } catch { /* binario */ }
-    if (json?.token) this.token = json.token;
+    if (json?.token && json?.session) this.token = json.token;   // solo respuestas de login/registro (otras respuestas, p. ej. el QR, también traen `token`)
     return { status: res.status, body: json, text, headers: res.headers, setCookie: set };
   }
   get(url, o) { return this.request('GET', url, undefined, o); }

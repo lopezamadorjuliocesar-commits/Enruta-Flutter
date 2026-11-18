@@ -1,3 +1,5 @@
+> **Documento histórico.** Describe la versión con PostgreSQL y una clave administrativa en el navegador. La implementación vigente (adaptador `RFC_MODE=local|idoo`, SQLite, sesiones) está en `README_LOCAL.md` y `DECISIONES_TECNICAS.md` §6.
+
 # Validación fiscal de RFC (idoo.dev) en EnRuta
 
 ## Hallazgos (Fase 1)

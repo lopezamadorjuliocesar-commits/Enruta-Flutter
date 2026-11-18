@@ -181,6 +181,11 @@ function createAdminService({ store, clock, auth }) {
       return rows.map((e) => ({ id: e.id, at: e.created_at, actorId: e.actor_id, actor: e.actor_name, action: e.action, entity: e.entity, entityId: e.entity_id, centerId: e.center_id, detail: e.detail, ip: e.ip }));
     },
     async verify(ctx) { return store.read((r) => r.audit.verifyChain(ctx.companyId)); },
+    /** Eventos de seguridad del propio usuario (sin requerir audit.read). */
+    async mine(ctx) {
+      const rows = await store.read((r) => r.audit.list(ctx.companyId, { actorId: ctx.userId, limit: 200 }));
+      return rows.filter((e) => /^(auth|profile)\./.test(e.action)).slice(0, 8).map((e) => ({ id: e.id, at: e.created_at, actorId: e.actor_id, actor: e.actor_name, action: e.action, entity: e.entity, entityId: e.entity_id, centerId: e.center_id, detail: e.detail }));
+    },
   };
 
   const notifications = {

@@ -1,8 +1,8 @@
 import { DatePipe } from '@angular/common';
-import { Component, Input, NgZone, OnDestroy, OnInit, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, NgZone, OnDestroy, OnInit, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { QRCodeComponent } from 'angularx-qrcode';
-import { MOBILE_API_URL } from '../core/config';
+import { NetworkInfo } from '../core/network.service';
 import { ApiDevice, ApiDriver, ApiError, ApiService, ApiVehicle, DeviceStatus, LinkToken } from '../core/api.service';
 import { ValidateFormDirective } from '../core/validate-form.directive';
 import type { EnrutaState } from '../core/enruta-state.service';
@@ -17,6 +17,9 @@ const emptyForm = (): DeviceForm => ({ alias: '', imei_serial: '', brand: '', mo
 @Component({
   selector: 'app-devices-screen',
   standalone: true,
+  // Transitorio (Fase 2.A): Angular 22 usa OnPush por defecto y estas pantallas leen campos simples de EnrutaState.
+  // Se migran a signals + OnPush pantalla por pantalla; mientras tanto se actualizan en cada turno de la zona.
+  changeDetection: ChangeDetectionStrategy.Default,
   imports: [FormsModule, DatePipe, QRCodeComponent, ValidateFormDirective],
   templateUrl: './devices-screen.component.html',
 })
@@ -24,6 +27,7 @@ export class DevicesScreenComponent implements OnInit, OnDestroy {
   @Input({ required: true }) app!: EnrutaState;
   private readonly api = inject(ApiService);
   private readonly zone = inject(NgZone);
+  protected readonly network = inject(NetworkInfo);
 
   devices: ApiDevice[] = []; drivers: ApiDriver[] = []; vehicles: ApiVehicle[] = [];
   loading = true; loadError = '';
@@ -136,7 +140,7 @@ export class DevicesScreenComponent implements OnInit, OnDestroy {
     const token = await this.guard(() => this.api.createLinkQr());
     this.linkLoading = false;
     if (!token) { this.linkError = 'No se pudo generar el código QR. Intenta de nuevo.'; return; }
-    this.linkQr = token; this.linkPayload = JSON.stringify({ v: 1, api: MOBILE_API_URL, token: token.token });
+    this.linkQr = token; this.linkPayload = JSON.stringify({ v: 1, api: token.apiUrl || this.network.state().publicApiUrl, token: token.token });
     const tick = () => { this.linkSeconds = Math.max(0, Math.round((new Date(token.expiresAt).getTime() - Date.now()) / 1000)); if (!this.linkSeconds) this.stopLinkTimers(); };
     tick(); this.linkTimer = setInterval(tick, 1000);
     this.linkPoll = setInterval(async () => {
@@ -170,7 +174,7 @@ export class DevicesScreenComponent implements OnInit, OnDestroy {
     this.qrLoading = false;
     if (!token) return;
     this.qr = token;
-    this.qrPayload = JSON.stringify({ v: 1, api: MOBILE_API_URL, token: token.token });
+    this.qrPayload = JSON.stringify({ v: 1, api: token.apiUrl || this.network.state().publicApiUrl, token: token.token });
     const tick = () => { this.secondsLeft = Math.max(0, Math.round((new Date(token.expiresAt).getTime() - Date.now()) / 1000)); if (!this.secondsLeft) this.stopTimers(); };
     tick();
     this.timer = setInterval(tick, 1000);
