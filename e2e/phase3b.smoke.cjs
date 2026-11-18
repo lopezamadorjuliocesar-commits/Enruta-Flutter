@@ -81,7 +81,7 @@ const login = async (page, email) => { await page.goto(BASE + '/'); await seeTex
 
   await step('12-8b. comodato y exhibición en la visita: verifica el activo, registra frentes y cobra en efectivo; se cierra', async () => {
     await M.page.locator('[data-asset="REF-001"]').getByRole('button', { name: 'Presente' }).click(); await seeText(M.page, 'Activo verificado');
-    await M.page.locator('[data-testid="step-display"] select').selectOption({ label: 'Agua purificada 600 ml' }); await M.page.locator('[data-testid="step-display"]').getByRole('button', { name: 'Agregar' }).click(); await M.page.locator('[data-testid="step-display"] input[name^="fr"]').fill('3'); await M.page.locator('[data-testid="step-display"] input[name^="ex"]').fill('5'); await M.page.click('[data-testid="save-audit"]'); await seeText(M.page, 'Auditoría de exhibición guardada');
+    await M.page.locator('[data-testid="step-display"] select').selectOption({ label: 'Agua purificada 600 ml' }); await M.page.locator('[data-testid="step-display"]').getByRole('button', { name: 'Agregar' }).click(); await M.page.locator('[data-testid="step-display"] input[data-field="fronts"]').fill('3'); await M.page.locator('[data-testid="step-display"] input[data-field="expected"]').fill('5'); await M.page.click('[data-testid="save-audit"]'); await seeText(M.page, 'Auditoría de exhibición guardada');
     await M.page.fill('#v-amt', '20'); await M.page.click('[data-testid="pay"]'); await seeText(M.page, 'Cobro registrado'); await M.page.click('[data-testid="close-visit"]'); await M.page.locator('li', { hasText: 'Abarrotes La Esquina' }).getByText('Entregada').waitFor();
   });
 

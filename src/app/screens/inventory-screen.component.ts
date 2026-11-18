@@ -38,8 +38,8 @@ export class InventoryScreenComponent implements OnInit {
 
   ngOnInit(): void { void this.refresh(); }
   setTab(t: Tab): void { this.tab.set(t); this.error.set(''); this.notice.set(''); void this.refresh(); }
-  private async guard<T>(job: () => Promise<T>, ok = ''): Promise<T | null> {
-    this.busy.set(true); this.error.set(''); this.notice.set('');
+  private async guard<T>(job: () => Promise<T>, ok = '', quiet = false): Promise<T | null> {
+    this.busy.set(true); this.error.set(''); if (!quiet) this.notice.set('');
     try { const r = await job(); if (ok) this.notice.set(ok); return r; } catch (e) { if (!isCancelled(e)) this.error.set(e instanceof Error ? e.message : 'No se pudo completar la acción.'); return null; } finally { this.busy.set(false); }
   }
   async refresh(): Promise<void> {
@@ -51,7 +51,7 @@ export class InventoryScreenComponent implements OnInit {
         case 'Comodato': this.assets.set(await this.api.assets()); break;
         case 'Exhibición': this.audits.set(await this.api.displayAudits()); break;
       }
-    });
+    }, '', true);
   }
 
   // ---- stock ----
