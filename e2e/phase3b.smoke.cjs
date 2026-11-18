@@ -87,7 +87,7 @@ const login = async (page, email) => { await page.goto(BASE + '/'); await seeTex
 
   await step('12-8c. autoventa desde la carga del camión: no vende más de lo cargado y descuenta de la carga', async () => {
     await M.page.locator('[data-open="Tienda Doña Lupe"]').click(); await M.ctx.setGeolocation({ latitude: 19.5321, longitude: -96.9145 }); await M.page.waitForTimeout(500); await M.page.click('[data-testid="arrive"]'); await seeText(M.page, 'Llegada registrada');
-    await M.page.check('[data-testid="sale-toggle"]'); await M.page.selectOption('select[aria-label="Producto"]', { label: /Agua purificada/ }); await M.page.click('button:has-text("Agregar")'); const line = M.page.locator('[data-product="Agua purificada 600 ml"]');
+    await M.page.check('[data-testid="sale-toggle"]'); const aguaVal = await M.page.locator('select[aria-label="Producto"] option', { hasText: 'Agua purificada' }).first().getAttribute('value'); await M.page.selectOption('select[aria-label="Producto"]', aguaVal); await M.page.click('button:has-text("Agregar")'); const line = M.page.locator('[data-product="Agua purificada 600 ml"]');
     await line.locator('input').nth(1).fill('9'); await M.page.click('[data-testid="save-delivery"]'); await seeText(M.page, 'la carga del camión no alcanza');
     await line.locator('input').nth(1).fill('5'); await M.page.click('[data-testid="save-delivery"]'); await seeText(M.page, 'Entrega guardada'); await M.page.click('[data-testid="close-visit"]'); await M.page.locator('li', { hasText: 'Tienda Doña Lupe' }).getByText('Entregada').waitFor();
     await M.page.click('[data-testid="finish-route"]'); await M.page.locator('[data-testid="route-summary"]').waitFor();
@@ -121,7 +121,7 @@ const login = async (page, email) => { await page.goto(BASE + '/'); await seeTex
 
   await step('12. Integraciones honestas: PAC y correo «Simulado / Desarrollo», SMS/WhatsApp «No disponible», y nada aparece como «Conectado»', async () => {
     await nav(A.page, 'Configuración'); const box = A.page.locator('[data-testid="integrations"]'); await box.locator('[data-integration="pac"]').getByText('Simulado / Desarrollo').first().waitFor(); await box.locator('[data-integration="sms"]').getByText('No disponible en esta versión').first().waitFor();
-    await box.locator('[data-integration="whatsapp"]').getByText('No disponible').first().waitFor(); if ((await box.innerText()).includes('Conectado')) throw new Error('alguna integración aparece como «Conectado» sin verificación real');
+    await box.locator('[data-integration="whatsapp"]').getByText('No disponible').first().waitFor(); if ((await box.locator('.status-pill').allInnerTexts()).some((t) => t.trim() === 'Conectado')) throw new Error('alguna integración aparece como «Conectado» sin verificación real');
   });
 
   await browser.close();
