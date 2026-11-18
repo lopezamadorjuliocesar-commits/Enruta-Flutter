@@ -203,10 +203,10 @@ module.exports = function createRoutes({ config, store, queue, services, adapter
   router.delete('/routes/:id/simulation', need('simulator.run'), wrap(async (req, res) => res.json(await tracking.stopSimulation(req.ctx, req.params.id))));
 
   // Configuración versionada, formularios y parámetros con herencia
-  router.get('/config', need('config.manage'), wrap(async (req, res) => res.json(await cfg.get(req.ctx))));
+  router.get('/config', needAny('config.manage', 'config.publish'), wrap(async (req, res) => res.json(await cfg.get(req.ctx))));
   router.put('/config/draft', need('config.manage'), wrap(async (req, res) => res.json(await cfg.saveDraft(req.ctx, req.body || {}))));
   router.post('/config/publish', need('config.publish'), wrap(async (req, res) => res.status(201).json(await cfg.publish(req.ctx, req.body || {}))));
-  router.get('/config/versions', need('config.manage'), wrap(async (req, res) => res.json(await cfg.versions(req.ctx))));
+  router.get('/config/versions', needAny('config.manage', 'config.publish'), wrap(async (req, res) => res.json(await cfg.versions(req.ctx))));
   router.get('/config/versions/:v', need('config.manage'), wrap(async (req, res) => res.json(await cfg.versionPayload(req.ctx, req.params.v))));
   router.get('/parameters/effective', needAny('config.manage', 'routes.read'), wrap(async (req, res) => res.json(await cfg.effective(req.ctx, req.query))));
 

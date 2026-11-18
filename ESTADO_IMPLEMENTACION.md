@@ -6,12 +6,13 @@ Corte: **Fase 2 terminada** (2026-11-18; incluye la Fase 1). Este documento solo
 
 | Comprobación | Comando | Resultado |
 |---|---|---|
-| Pruebas backend | `npm run test:backend` | **131 de 131 correctas** (19 archivos, ~7 s, SQLite en memoria) |
-| Pruebas frontend | `npm test` (Karma + ChromeHeadless) | **25 correctas, 1 omitida (`xit`)**, 0 fallidas |
-| Compilación frontend | `ng build` (producción) | Sin errores ni advertencias; bundle inicial 897 kB (207 kB transferidos); la vista de repartidor es un chunk diferido de ~18 kB |
-| Compilación backend | `node -e "require('./src/runtime')"` + las 131 pruebas | Sin errores (JavaScript, sin paso de compilación) |
+| Pruebas backend | `npm run test:backend` | **153 de 153 correctas** (21 archivos, ~16 s, SQLite en memoria) |
+| Pruebas frontend | `npm test` (Karma + ChromeHeadless) | **38 correctas, 1 omitida (`xit`)**, 0 fallidas |
+| Compilación frontend | `ng build` (producción) | Sin errores ni advertencias; bundle inicial 918 kB (212 kB transferidos); la vista de repartidor es un chunk diferido de ~18 kB |
+| Compilación backend | `node -e "require('./src/runtime')"` + las 153 pruebas | Sin errores (JavaScript, sin paso de compilación) |
 | Humo E2E Fase 1 | `npm run e2e:phase1` | **12 de 12 pasos** (sin regresiones tras migrar a OnPush) |
 | Humo E2E Fase 2 | `npm run e2e:phase2` | **15 de 15 pasos** (administrador, supervisor y un móvil emulado de 390 px, simultáneos, contra backend + `ng serve`) |
+| Humo E2E Fase 3 (puntos 8–10) | `npm run e2e:phase3` | **17 de 17 pasos** (administrador + móvil con geolocalización: formularios, parámetros, publicación, entrega parcial con foto y firma, cobro, GPS real, simulador, versión mínima) |
 | Chequeo de tipos | `tsc -p tsconfig.app.json --noEmit` | Sin errores |
 
 La prueba omitida es `ScreenBoundaryComponent … interaction failure` (preexistente: bajo Angular 22 los errores de listeners no llegan al `ErrorHandler` del componente; ver DECISIONES_TECNICAS §6). Antes de esta fase **las 11 pruebas Karma originales fallaban** en este entorno (falta de `ActivatedRoute`, input `app` no declarado en el doble de prueba, etc.).
@@ -33,10 +34,10 @@ Leyenda: ✅ verificado · ◐ parcial · ⏳ pendiente (fase indicada)
 | 7 | Vinculación de dispositivo | ✅ | `fleet.test.js` (6), `mobile.test.js`, `realtime.test.js`: QR de un solo uso, caduca, URL con alerta de localhost, revocación, confirmación SSE; E2E-2 pasos 9, 10 y 14 (el móvil escanea la URL, el panel confirma sin recargar; desvincular bloquea el teléfono) |
 | 8 | Acceso como repartidor | ✅ | `mobile.test.js` (permisos, dispositivo requerido, conductor asignado, otra empresa, CSRF); E2E-2 paso 11 (login desde la vista móvil) |
 | 9 | Consulta de ruta asignada | ✅ | `mobile.test.js` (solo rutas **Publicadas** del operador; borrador y pendiente no se descargan); E2E-2 pasos 11 y 13 (una ruta nueva aprobada llega al teléfono en vivo) |
-| 10 | Posiciones GPS reales y simuladas | ⏳ | Fase 3.B (la Torre de control aún muestra «En vivo» fijo) |
-| 11 | Entregas con evidencias | ⏳ | Fase 3.A (el almacén de archivos en disco ya existe: se usa para la foto de perfil) |
-| 12 | Registro de cobros | ⏳ | Fase 3.A |
-| 13 | Cierre de ruta | ⏳ | Fase 3.A |
+| 10 | Posiciones GPS reales y simuladas | ✅ | `tracking.test.js` (6: lotes, descartes, estados REAL/SIMULATED/STALE/OFFLINE, simulador, reinicio), Karma `tracking.store.spec` (5), E2E-3 pasos 9a/9b/9c: «En vivo» solo con GPS real reciente; «Ubicación simulada» y «Simulación activa» rotulados |
+| 11 | Entregas con evidencias | ✅ | `execution.test.js` (12: total/parcial/fallida, motivos, foto/firma obligatorias según el formulario, aislamiento), E2E-3 pasos 8a–8c y 8g (foto real y firma dibujada; la evidencia solo se sirve con sesión) |
+| 12 | Registro de cobros | ✅ | `execution.test.js` (saldo FIFO, sobrepago, referencia, idempotencia), Karma `driver.service.spec` (clave reutilizada en el reintento), E2E-3 paso 8d (doble clic no duplica) |
+| 13 | Cierre de ruta | ✅ | `execution.test.js` (`VISITS_PENDING`, resumen, notificación, bloqueo por saldo vencido), E2E-3 pasos 8e–8f |
 | 14 | Liquidación y conciliación | ⏳ | Fase 3.D (la liquidación sigue siendo manual y local) |
 | 15 | Indicadores y auditoría | ◐ | Auditoría persistente append-only con cadena de hashes ✅ (`audit.test.js`, 5) y visible en la UI; **indicadores desde la BD → Fase 3.F** |
 | 16 | Persistencia tras reinicio de backend y frontend | ◐ | Backend: `db.test.js`. Navegador: la sesión sobrevive a recargar (E2E-1 y 2). Rutas, clientes, productos, usuarios y dispositivos ya vienen del servidor; **siguen temporales en el navegador** los módulos listados en §5 |
@@ -45,7 +46,7 @@ Leyenda: ✅ verificado · ◐ parcial · ⏳ pendiente (fase indicada)
 | 19 | Recuperación de contraseña desde otro navegador | ✅ | `auth.recovery.test.js` (9), E2E 8 y 10 |
 | 20 | Actualización reactiva de UI sin recargas ni clics extra | ✅ | Zone.js + OnPush + signals en las 31 pantallas. Karma (error visible sin clics, RFC, cambio de centro, aprobación, importación) y E2E-1/2: login fallido, rutas, bandeja del aprobador, QR, panel de dispositivos y vista móvil se actualizan solos. Límite: la mutación en sitio de objetos anidados no notifica (usar reemplazo) |
 
-## 3. Funciones terminadas (Fases 1 y 2)
+## 3. Funciones terminadas (Fases 1 y 2 y puntos 8–10 de la Fase 3)
 
 - **Persistencia**: SQLite (`better-sqlite3`), migraciones con checksum, `seed:reset` con confirmación, repositorios asíncronos (listos para PostgreSQL), arranque sin borrar datos.
 - **Cola sin Redis**: `jobs_queue` con estados, backoff exponencial, `dedupe_key`, reclamo atómico, recuperación al reiniciar. La usan el correo y el timbrado de Carta Porte.
@@ -62,6 +63,9 @@ Leyenda: ✅ verificado · ◐ parcial · ⏳ pendiente (fase indicada)
 - **Vista de repartidor (Fase 2)**: `/repartidor` mobile-first con el contrato `/api/mobile/v1`: vincular, iniciar sesión, descargar la ruta publicada, ver paradas e iniciar la ruta.
 - **Tiempo real (Fase 2)**: `GET /api/events` (SSE) con filtro por empresa/centro/usuario; lo usan el panel, la bandeja de aprobaciones, el panel de dispositivos y la vista móvil.
 - **Change detection (Fase 2)**: Zone.js + OnPush + `makeReactive()`; sin `setTimeout`/`setInterval`/`markForCheck`/`detectChanges` en la app.
+- **Entregas, visitas y cobros (Fase 3 · punto 8)**: llegada con GPS y radio heredado (motivo si está fuera), entrega total/parcial/fallida con motivos y catálogo de incidencias, formulario de entrega/cobro/visita publicado con validación real, foto y firma reales (en disco, validadas por firma de archivo), cobros (efectivo/transferencia/tarjeta) con saldo FIFO y rechazo de sobrepago, bloqueo de crédito por saldo vencido, cierre de visita, «no visitada», fin de ruta con resumen, **idempotencia** (`Idempotency-Key`) y revisión de evidencias en Rutas → «Ejecución».
+- **GPS y torre de control (punto 9)**: recepción de posiciones reales del teléfono (`watchPosition`), historial en BD, estado visible Real/Simulado/Desactualizado/Desconectado recalculado cada 5 s, píldora «En vivo» condicionada, simulador explícito.
+- **Configuración, formularios y herencia (punto 10)**: borrador vs versiones publicadas inmutables, «recibida por X de Y» (ack del dispositivo), constructor de formularios con validación en servidor y cliente, parámetros Empresa → Centro → Zona → Ruta → Usuario con marcador de origen, y reglas aplicadas en los servicios (radio, saldo vencido, horario de embarque, versión mínima → 426).
 - **Documentación**: `README.md`, `README_LOCAL.md`, `DECISIONES_TECNICAS.md`, `PLAN_AVANCE.md`, `.env.example`.
 
 ## 4. Simulaciones (declaradas en la interfaz y en `GET /api/health`)
@@ -77,15 +81,15 @@ Siguen **sin simular correctamente** (Fase 3.E): el panel *Configuración* aún 
 
 ## 5. Pendientes y límites conocidos
 
-1. Fases 3–4 del plan: visitas, entregas, cobros, evidencias, GPS y simulador, configuración versionada, formularios con validación real, parámetros por herencia, precios/inventario/liquidaciones, indicadores y el barrido E2E de los 20 escenarios con Playwright Test.
-2. Módulos que **todavía viven en el navegador** (temporal, por empresa y centro): precios/promociones/descuentos, formularios, parámetros, módulos, liquidaciones manuales, notificaciones visibles, marca, preferencias y Carta Porte generada.
+1. Pendiente del plan: 3.D (precios, promociones, descuentos, inventario, módulos de preventa/autoventa/comodato, liquidaciones —incluida la **tolerancia de efectivo**, que ya se publica pero aún no se aplica—), 3.E–3.F y la Fase 4 (los 20 escenarios completos), indicadores y el barrido E2E de los 20 escenarios con Playwright Test.
+2. Módulos que **todavía viven en el navegador** (temporal, por empresa y centro): precios/promociones/descuentos, liquidaciones manuales, notificaciones visibles, marca, preferencias y Carta Porte generada.
 3. `ScreenBoundary` no captura errores de interacción (Angular 22); sí captura fallos de renderizado.
 4. La mutación en sitio de objetos anidados de `EnrutaState` no repinta por sí sola (hay que reemplazar el objeto); está acotada a eventos dentro de la propia vista.
 5. SSO corporativo inexistente (botón deshabilitado y rotulado).
 6. No existe proyecto Flutter; no se modificó nada móvil.
-7. El repartidor **no registra** visitas, entregas, cobros ni evidencias, y no envía GPS: la vista lo dice expresamente. La Torre de control sigue mostrando «En vivo» sin recibir GPS (Fase 3.B).
-8. Las rutas usan un día de la semana (texto), no una fecha ni ventana de embarque (Fase 3.C).
+7. El repartidor necesita conexión: los reintentos son seguros (idempotentes) pero no hay cola local persistente fuera de línea. Falta historial visual del recorrido y una galería de evidencias.
+8. Las rutas usan un día de la semana (texto), no una fecha; la ventana de embarque es global por ámbito (no por día).
 9. El bus SSE vive en la memoria de un proceso (una sola instancia).
 10. Los límites de intentos por IP viven en memoria del proceso (se reinician con el servidor); el bloqueo por cuenta sí es persistente.
 11. `docker-compose.yml` sin probar.
-12. No se probó con un teléfono físico ni con HTTPS: en HTTP por LAN algunos navegadores móviles restringen cámara y GPS (la vista actual no los usa).
+12. No se probó con un teléfono físico ni con HTTPS: en HTTP por LAN algunos navegadores móviles restringen cámara y GPS (la vista del repartidor sí los usa: probada solo con Chromium emulado, no con un teléfono físico).

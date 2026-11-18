@@ -104,7 +104,7 @@ const nav = (page, label) => page.click(`.nav-item:has-text("${label}")`);
   await step('12. el repartidor inicia la ruta y el panel muestra «En ejecución» sin recargar', async () => {
     await M.page.click('button:has-text("Iniciar ruta")'); await seeText(M.page, 'En ejecución');
     await nav(A.page, 'Rutas'); await A.page.locator('.record-row', { hasText: 'Ruta E2E' }).getByText('En ejecución').waitFor();
-    await seeText(M.page, 'no los simula');                                                   // honestidad: visitas/entregas/cobros aún no existen
+    await seeText(M.page, 'Finalizar ruta');                                               // ya hay flujo real de visitas (Fase 3)
   });
 
   await step('13. una ruta nueva aprobada llega al teléfono en tiempo real (SSE)', async () => {

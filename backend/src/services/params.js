@@ -53,4 +53,4 @@ function insideWindow(window, date, timeZone = 'America/Mexico_City') {
   return from <= to ? now >= from && now <= to : now >= from || now <= to;
 }
 
-module.exports = { SCOPES, DEFAULTS, RULES, parseScopeValues, resolve, cmpVersion, insideWindow };
+module.exports = { PRECEDENCE, SCOPES, DEFAULTS, RULES, parseScopeValues, resolve, cmpVersion, insideWindow };

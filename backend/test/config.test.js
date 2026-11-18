@@ -84,6 +84,11 @@ test('herencia real con centro, zona, ruta y usuario del servidor', async () => 
   const eff = (await a.get(`/api/parameters/effective?routeId=${f.route.id}`)).body; assert.deepEqual([eff.values.visit_radius_m, eff.origins.visit_radius_m], [400, 'RUTA']);
   assert.deepEqual([eff.values.overdue_block_days, eff.origins.overdue_block_days], [15, 'EMPRESA']); assert.deepEqual([eff.values.loading_window, eff.origins.loading_window], ['06:00-09:00', 'USUARIO']);
   assert.deepEqual([(await a.get(`/api/parameters/effective?centerId=${centerId}`)).body.values.visit_radius_m, (await a.get(`/api/parameters/effective?zoneId=${zone.id}&centerId=${centerId}`)).body.origins.visit_radius_m], [200, 'ZONA']);
+  // `inheritedFor`: lo que heredaría ese nivel sin sus propios valores ni los más específicos (marcadores de la pantalla de parámetros)
+  const inh = async (level, extra) => (await a.get(`/api/parameters/effective?source=draft&inheritedFor=${level}&centerId=${centerId}&${extra}`)).body;
+  assert.deepEqual([(await inh('RUTA', `routeId=${f.route.id}`)).values.visit_radius_m, (await inh('RUTA', `routeId=${f.route.id}`)).origins.visit_radius_m], [200, 'CENTRO'], 'la ruta heredaría del centro (la ruta no tiene zona)');
+  assert.deepEqual([(await inh('CENTRO', '')).values.visit_radius_m, (await inh('CENTRO', '')).origins.visit_radius_m], [100, 'EMPRESA']);
+  assert.equal((await inh('EMPRESA', '')).origins.visit_radius_m, 'SISTEMA');
 });
 
 test('recepción por dispositivo: «recibida por X de Y» y evento en vivo', async () => {

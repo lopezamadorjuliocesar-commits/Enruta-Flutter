@@ -120,21 +120,24 @@ npx playwright test --reporter=line --trace off
 
 ## Fase 3 — Ejecución en campo, GPS, reglas e integraciones
 
-### 3.A Entregas, evidencias y cobros (DT-34…39)
-- ☐ `migrations/005_execution.sql`; middleware de idempotencia.
-- ☐ `POST /api/mobile/v1/stops/:id/arrive`, `/visits/:id/deliveries`, `/visits/:id/evidences`, `/visits/:id/payments`, `/visits/:id/close`, `/routes/:id/finish`, `/incidents`.
-- ☐ `EvidenceStore` en `./storage/evidences`; `GET /api/evidences/:id`.
-- ☐ Pantallas de repartidor: entrega total/parcial/fallida, foto, firma (canvas), cobro, saldo del cliente.
+### 3.A Entregas, evidencias y cobros (DT-34…39) — ☑ completada
+- ☑ `migrations/007_execution.sql` (visitas, entregas y líneas, evidencias, cobros, libro de cuenta del cliente, incidencias, `idempotency_keys`); middleware de idempotencia (`Idempotency-Key` 8–80 caracteres; solo se guardan respuestas 2xx).
+- ☑ `POST /api/mobile/v1/routes/:id/stops/:clientId/arrive|skip`, `/visits/:id/delivery|payments|close`, `/visits/:id/evidences?kind=PHOTO|SIGNATURE` (imagen cruda), `/routes/:id/finish`, `/incidents`; apoyo: `GET /mobile/v1/products`, `/incident-reasons`.
+- ☑ Evidencias en disco (`./storage/evidences/<empresa>/<año>/<mes>/<uuid>.<ext>`, validadas por firma de archivo, SHA-256); `GET /api/evidences/:id` y `GET /api/routes/:id/execution` con sesión y permiso `tracking.read`.
+- ☑ Vista de repartidor: llegada con GPS y radio, entrega total/parcial/fallida con motivos, formulario publicado, foto real (cámara/archivo reducida en el cliente), firma en canvas, cobro con saldo (FIFO), cierre, «no visitada», fin de ruta con resumen; reintento seguro con la misma `Idempotency-Key`.
+- Desviaciones: migraciones 006/007/008 (no 005/006/007); el repartidor captura cantidades pedido/entregado (no hay pedidos hasta 3.D); la tolerancia de efectivo se resuelve y publica, pero se aplica en las liquidaciones (3.D).
 
-### 3.B GPS y torre de control (DT-40…42)
-- ☐ `migrations/006_tracking.sql`; `POST /api/mobile/v1/positions`, `GET /api/tracking/live`, `GET /api/tracking/routes/:id/history`.
-- ☐ Simulador `POST/DELETE /api/routes/:id/simulation`.
-- ☐ Torre de control: estados Real / Simulado / Desactualizado / Desconectado; píldora "En vivo" condicionada.
+### 3.B GPS y torre de control (DT-40…42) — ☑ completada
+- ☑ `migrations/008_tracking.sql`; `POST /api/mobile/v1/positions` (≤ 100 por lote, descarta inválidas/futuras/imprecisas, deduplica), `GET /api/tracking/live`, `GET /api/tracking/routes/:id/history`.
+- ☑ Simulador explícito `POST|DELETE /api/routes/:id/simulation` (`simulator.run`, `SIMULATOR_ENABLED`): puntos `source=SIMULATED`; al arrancar el servidor toda simulación vuelve a «detenida».
+- ☑ Torre de control: *Ubicación real* / *Ubicación simulada* / *Desactualizado* / *Desconectado* (re-evaluado cada 5 s con la hora del servidor); la píldora dice «En vivo» solo con ≥ 1 vehículo REAL reciente, «Simulación activa · sin GPS real» o «Sin datos en vivo».
+- ☑ El teléfono envía su ubicación REAL (`watchPosition`, lotes de 15 s) solo con la ruta en ejecución y permiso del navegador.
 
-### 3.C Configuración, formularios y parámetros (DT-43…45)
-- ☐ `migrations/007_settings.sql`; `GET/PUT /api/config/draft`, `POST /api/config/publish`, `GET /api/config/versions`, `GET /api/mobile/v1/config`, `POST …/config/ack`.
-- ☐ Formularios: `GET/PUT /api/forms/:kind`; validador compartido front/back.
-- ☐ Parámetros: `GET/PUT /api/parameters?scope=&id=`, `GET /api/parameters/effective`; reglas aplicadas en servicios (radio, tolerancia, saldo vencido, ventana de carga, versión mínima → 426).
+### 3.C Configuración, formularios y parámetros (DT-43…45) — ☑ completada
+- ☑ `migrations/006_settings.sql`; `GET /api/config`, `PUT /api/config/draft`, `POST /api/config/publish`, `GET /api/config/versions[/:v]`, `GET /api/mobile/v1/config`, `POST …/config/ack`. Un BORRADOR editable y versiones PUBLICADAS inmutables; «recibida por X de Y dispositivos».
+- ☑ Formularios (entrega, cobro, visita) con validador compartido (`backend/src/services/forms.js` ↔ `src/app/core/form-validator.ts`); el servidor valida con la versión con que se capturó.
+- ☑ Parámetros por herencia Empresa → Centro → Zona → Ruta → Usuario (`GET /api/parameters/effective`, incl. `inheritedFor`) aplicados en los servicios: radio de visita, saldo vencido (bloqueo de crédito), horario de embarque, versión mínima (426).
+- Desviación: los formularios y parámetros viajan en el mismo payload versionado (no hay `/api/forms/:kind` ni `/api/parameters` por separado). `loading_window` y `min_client_version` quedan vacíos (sin restricción) hasta que la empresa los define.
 
 ### 3.D Precios, inventario, módulos y liquidaciones (DT-46, 46b, 47)
 - ☐ `/api/price-lists`, `/api/promotions`, `/api/discount-rules`, `GET /api/pricing/quote?clientId&items`.

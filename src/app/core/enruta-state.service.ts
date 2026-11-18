@@ -5,6 +5,7 @@ import { AdminStore, RoleDto, UserDto } from './admin.store';
 import { AuthService } from './auth.service';
 import { NetworkInfo } from './network.service';
 import { ClientDto, OperationsApi, ProductDto, RouteDto } from './operations.api';
+import { ConfigPayload, ConfigStore, FieldDef } from './config.store';
 import { EventStream } from './events/event-stream.service';
 import { makeReactive } from './reactive';
 import { PermissionStore } from './rbac/permission.store';
@@ -312,8 +313,6 @@ export class EnrutaState {
   draftDay = 'Lunes'; draftColor = '#1769aa'; draftOperator = ''; draftStatus = ''; draftPassword = '';
   activeRouteId: number | null = null;
   selectedDevice: SimpleRecord | null = null;
-  pendingChanges: string[] = [];
-  versions: SimpleRecord[] = [];
   changeNote = '';
   userFilter = 'Todos';
   routeMetrics = { distanceKm: 0, durationMin: 0, geometry: [] as number[][], estimated: false, loading: false };
@@ -337,7 +336,7 @@ export class EnrutaState {
    * (rutas, clientes del planeador, precios, formularios…) se guardan en este navegador, separados por
    * EMPRESA y CENTRO activos (IDs estables). Las cuentas, sesiones, usuarios, roles y permisos YA NO viven aquí.
    */
-  private static readonly OPERATIONAL_KEYS = ['parameterSets', 'settingsModules', 'deliveryFields', 'formsData', 'settlements', 'priceLists', 'promotions', 'discounts', 'devices', 'notifications', 'auditEvents', 'profilePreferences', 'brandColor', 'brandName', 'brandLogoDataUrl', 'brandLogoName', 'connectionState', 'messagingConfig', 'cartasPorte', 'cartaPorteDefaults', 'pendingChanges', 'versions', 'selectedPlan'];
+  private static readonly OPERATIONAL_KEYS = ['settlements', 'priceLists', 'promotions', 'discounts', 'devices', 'notifications', 'auditEvents', 'profilePreferences', 'brandColor', 'brandName', 'brandLogoDataUrl', 'brandLogoName', 'connectionState', 'messagingConfig', 'cartasPorte', 'cartaPorteDefaults', 'selectedPlan'];
   private get interimKey(): string | null {
     const i = this.session.info(); return i ? `enruta.interim.v1.${i.company.id}.${i.activeCenterId ?? 'todos'}` : null;
   }
@@ -365,7 +364,8 @@ export class EnrutaState {
   /** Vacía todo el estado operativo en memoria (cambio de empresa/centro, cierre de sesión). */
   private resetOperationalState(): void {
     this.products = []; this.clients = []; this.routes = []; this.priceLists = []; this.promotions = []; this.discounts = []; this.devices = []; this.notifications = []; this.auditEvents = [];
-    this.approvals = []; this.settlements = []; this.versions = []; this.pendingChanges = []; this.cartasPorte = []; this.cartaPorteDefaults = null; this.activeRouteId = null;
+    this.approvals = []; this.settlements = []; this.cartasPorte = []; this.cartaPorteDefaults = null; this.activeRouteId = null;
+    this.configStore.reset(); this.zonesList = []; this.inheritedValues = {}; this.inheritedOrigins = {}; this.changeNote = '';
     this.parameterSets = {}; this.deliveryFields = []; this.formsData = {}; this.activeClient = null; this.selectedDevice = null; this.selectedPlan = '';
     this.settingsModules = this.settingsModules.map((m) => ({ ...m, enabled: false }));
     this.brandColor = ''; this.brandName = ''; this.brandLogoDataUrl = ''; this.brandLogoName = '';
@@ -452,6 +452,7 @@ export class EnrutaState {
     this.view = view; this.searchTerm = ''; this.activeClient = null; this.selectedDevice = null;
     if (view === 'context') this.contextChoice = this.session.info()?.activeCenterId ?? '__all';
     if (view === 'planner') void this.refreshRoute();
+    if (['configuration', 'forms', 'parameters', 'publish'].includes(view) && this.perms.canAny('config.manage', 'config.publish')) { if (this.configStore.view()) void this.refreshConfigVersions(); else void this.loadConfig(); }   // la primera vez se hidrata; después no se pisan las ediciones sin guardar
     if (view === 'users') void this.admin.loadAdmin();
     if (view === 'audit') void this.loadServerAudit();
     if (view === 'profile') { void this.loadProfileData(); }
@@ -1080,26 +1081,130 @@ export class EnrutaState {
     } catch (e) { if (!isCancelled(e)) this.fail(this.session.errorMessage(e, 'No se pudo cambiar de centro.')); }
   }
 
-  saveConfiguration(): void {
-    this.pendingChanges = [...new Set([...this.pendingChanges, 'Módulos, formularios o marca modificados'])];
-    this.addAuditEvent('Guardó un borrador de configuración');
-    this.notify('Borrador de configuración guardado.');
+  // ======================= Configuración versionada (borrador / publicada) =======================
+  private readonly configStore = inject(ConfigStore);
+  configBusy = false;
+  zonesList: { id: string; name: string }[] = [];
+  inheritedValues: Record<string, string> = {};
+  inheritedOrigins: Record<string, string> = {};
+
+  get configView() { return this.configStore.view(); }
+  /** Hasta que el servidor responda no se muestran los editores: lo escrito antes de la carga se perdería al hidratar. */
+  get configReady(): boolean { return !!this.configStore.view(); }
+  /** Versiones publicadas con la confirmación de recepción de los dispositivos («recibida por X de Y»). */
+  get configVersions() { return this.configStore.view()?.versions ?? []; }
+  get hasUnpublishedChanges(): boolean { return !!this.configStore.view()?.hasChanges; }
+  /** Resumen legible de lo que cambió entre el borrador y la última versión publicada. */
+  get pendingChanges(): string[] {
+    const v = this.configStore.view(); if (!v?.hasChanges) return [];
+    const d = v.draft; const p = v.published?.payload; const out: string[] = [];
+    const on = (c: ConfigPayload | undefined) => (c?.modules ?? []).filter((m) => m.enabled).map((m) => m.name).sort().join('|');
+    if (on(d) !== on(p)) out.push('Módulos activados o desactivados');
+    for (const k of ['entrega', 'cobro', 'visita'] as const) if (JSON.stringify(d.forms[k]) !== JSON.stringify(p?.forms[k] ?? [])) out.push(`Formulario de ${this.formLabels[k].toLowerCase()} actualizado`);
+    if (JSON.stringify(d.parameters) !== JSON.stringify(p?.parameters ?? {})) out.push('Parámetros operativos modificados');
+    return out;
   }
+
+  /** Un dispositivo confirmó (o alguien publicó): actualiza solo el historial, sin pisar lo que se está editando. */
+  private async refreshConfigVersions(): Promise<void> { try { const v = await this.configStore.load(); void v; } catch { /* se reintenta en el siguiente evento */ } }
+
+  async loadConfig(): Promise<void> {
+    if (!this.session.authenticated()) return;
+    try {
+      const view = await this.configStore.load();
+      if (this.perms.can('config.manage')) { try { await this.configStore.loadZones(); this.zonesList = this.configStore.zones().map((z) => ({ id: z.id, name: z.name })); } catch { this.zonesList = []; } }
+      this.hydrateConfig(view.draft); this.formDirty = false; void this.refreshInherited();
+    } catch (e) { if (!isCancelled(e)) this.fail(this.session.errorMessage(e, 'No se pudo cargar la configuración.')); }
+  }
+
+  /** Copia el borrador del servidor a los modelos de edición de las pantallas. */
+  private hydrateConfig(c: ConfigPayload): void {
+    this.settingsModules = this.settingsModules.map((m) => ({ ...m, enabled: !!c.modules.find((x) => x.name === m.name)?.enabled }));
+    const forms: Record<string, DeliveryField[]> = {};
+    for (const k of ['entrega', 'cobro', 'visita'] as const) forms[k] = (c.forms[k] ?? []).map((f, i) => this.toUiField(f, i));
+    this.formsData = forms; this.deliveryFields = [...forms['entrega']];
+    const sets: Record<string, Record<string, string>> = {};
+    for (const [key, values] of Object.entries(c.parameters ?? {})) sets[this.uiScopeKey(key)] = this.toUiParams(values);
+    this.parameterSets = sets;
+  }
+  private toUiField(f: FieldDef, i: number): DeliveryField {
+    return { ...f, id: /^\d+$/.test(f.id) ? Number(f.id) : Date.now() + i, options: [...(f.options ?? [])] };
+  }
+  private toServerField(f: DeliveryField): FieldDef {
+    return { id: String(f.id), label: f.label.trim(), type: f.type, required: !!f.required, placeholder: f.placeholder ?? '', helpText: f.helpText ?? '', options: f.options ?? [],
+      min: String(f.min ?? ''), max: String(f.max ?? ''), maxLength: String(f.maxLength ?? ''), defaultValue: f.defaultValue ?? '', visible: f.visible !== false };
+  }
+  /** Clave del servidor (`CENTRO:id`) ↔ clave de la pantalla (`Centro:id`). */
+  private uiScopeKey(key: string): string { const [t, id] = key.split(':'); return t === 'EMPRESA' ? 'Empresa' : `${t.charAt(0)}${t.slice(1).toLowerCase()}:${id}`; }
+  private serverScopeKey(ui: string): string { const [t, id] = ui.split(':'); return t === 'Empresa' ? 'EMPRESA' : `${t.toUpperCase()}:${id}`; }
+  private toUiParams(v: Record<string, string | number>): Record<string, string> {
+    const [from = '', to = ''] = String(v['loading_window'] ?? '').split('-');
+    const cents = v['cash_tolerance_cents'];
+    return { visitRadius: v['visit_radius_m'] === undefined ? '' : String(v['visit_radius_m']), cashTolerance: cents === undefined ? '' : String(Number(cents) / 100),
+      overdueDays: v['overdue_block_days'] === undefined ? '' : String(v['overdue_block_days']), loadingFrom: from, loadingTo: to, minimumVersion: String(v['min_client_version'] ?? '') };
+  }
+  private toServerParams(u: Record<string, string>): Record<string, string | number> {
+    const out: Record<string, string | number> = {};
+    if (String(u['visitRadius'] ?? '').trim() !== '') out['visit_radius_m'] = Number(u['visitRadius']);
+    if (String(u['cashTolerance'] ?? '').trim() !== '') out['cash_tolerance_cents'] = Math.round(Number(u['cashTolerance']) * 100);
+    if (String(u['overdueDays'] ?? '').trim() !== '') out['overdue_block_days'] = Number(u['overdueDays']);
+    if (u['loadingFrom'] || u['loadingTo']) out['loading_window'] = `${u['loadingFrom'] ?? ''}-${u['loadingTo'] ?? ''}`;
+    if (String(u['minimumVersion'] ?? '').trim() !== '') out['min_client_version'] = String(u['minimumVersion']).trim();
+    return out;
+  }
+
+  private async persistDraft(body: Partial<ConfigPayload>, ok: string): Promise<boolean> {
+    if (this.configBusy) return false;
+    this.configBusy = true;
+    try { const v = await this.configStore.saveDraft(body); this.hydrateConfig(v.draft); this.formDirty = false; void this.refreshInherited(); this.notify(ok); return true; }
+    catch (e) { if (!isCancelled(e)) this.fail(this.session.errorMessage(e, 'No se pudo guardar el borrador.')); return false; }
+    finally { this.configBusy = false; }
+  }
+
+  saveConfiguration(): void { void this.persistDraft({ modules: this.settingsModules.map((m) => ({ name: m.name, enabled: m.enabled })) }, 'Borrador de módulos guardado. Aún no se publica a los dispositivos.'); }
 
   saveParameters(): void {
-    this.pendingChanges = [...new Set([...this.pendingChanges, 'Parámetros operativos modificados'])];
-    this.addAuditEvent('Guardó parámetros del centro');
-    this.notify('Parámetros guardados como borrador.');
+    const parameters: ConfigPayload['parameters'] = {};
+    for (const [ui, values] of Object.entries(this.parameterSets)) { const bag = this.toServerParams(values); if (Object.keys(bag).length) parameters[this.serverScopeKey(ui)] = bag; }
+    void this.persistDraft({ parameters }, 'Parámetros guardados como borrador. Publícalos para que los apliquen los dispositivos.');
   }
 
-  publishConfiguration(): void {
-    if (!this.pendingChanges.length) { this.fail('No hay cambios pendientes por publicar. Guarda un borrador primero.'); return; }
-    const version: SimpleRecord = { id: Date.now(), name: `Versión ${this.versions.length + 1}`, detail: `${new Date().toLocaleString('es-MX')}${this.changeNote.trim() ? ' · ' + this.changeNote.trim() : ''}`, status: 'Publicada' };
-    this.versions = [version, ...this.versions]; this.pendingChanges = []; this.changeNote = '';
-    this.addNotification('Configuración publicada', `${version.name} se aplicará al sincronizar los dispositivos.`, 'Sistema');
-    this.addAuditEvent(`Publicó ${version.name}`);
-    this.notify('Configuración publicada. Se aplicará al sincronizar los dispositivos.');
-    this.view = 'configuration';
+  saveForm(): void {
+    const list = this.currentFields;
+    const bad = list.find((f) => !f.label.trim() || (f.type === 'Selección' && (f.options?.length ?? 0) < 2));
+    if (bad) { this.selectedFieldId = bad.id; this.fail(bad.label.trim() ? `El campo “${bad.label}” necesita al menos 2 opciones.` : 'Todos los campos necesitan una etiqueta.'); return; }
+    const min = list.find((f) => f.min !== '' && f.max !== '' && Number(f.min) > Number(f.max));
+    if (min) { this.selectedFieldId = min.id; this.fail(`En “${min.label}” el mínimo no puede ser mayor que el máximo.`); return; }
+    void this.persistDraft({ forms: { [this.activeForm]: list.map((f) => this.toServerField(f)) } as ConfigPayload['forms'] }, 'Formulario guardado como borrador.');
+  }
+
+  async publishConfiguration(): Promise<void> {
+    if (this.configBusy) return;
+    if (!this.hasUnpublishedChanges) { this.fail('No hay cambios pendientes por publicar. Guarda un borrador primero.'); return; }
+    this.configBusy = true;
+    try {
+      const v = await this.configStore.publish(this.changeNote.trim());
+      this.changeNote = ''; this.hydrateConfig(v.draft); void this.refreshInherited();
+      this.notify(`Versión ${v.published?.version} publicada. Se aplicará cuando los dispositivos la reciban y confirmen.`); this.view = 'configuration';
+    } catch (e) { if (!isCancelled(e)) this.fail(this.session.errorMessage(e, 'No se pudo publicar la configuración.')); }
+    finally { this.configBusy = false; }
+  }
+
+  /** Valores que heredaría el ámbito que se está editando (del borrador guardado, sin sus propios valores) y su origen, para los marcadores. */
+  async refreshInherited(): Promise<void> {
+    if (!this.perms.can('config.manage')) return;
+    const scope = this.parameterScope; const target = this.parameterTarget;
+    if (scope === 'Empresa') { this.inheritedValues = {}; this.inheritedOrigins = {}; return; }
+    const q: Record<string, string | undefined> = { source: 'draft', inheritedFor: scope.toUpperCase(), centerId: this.session.activeCenter()?.id };
+    if (scope === 'Zona') q['zoneId'] = target; else if (scope === 'Ruta') q['routeId'] = target; else if (scope === 'Usuario') q['userId'] = target;
+    if ((scope === 'Zona' || scope === 'Ruta' || scope === 'Usuario') && !target) { this.inheritedValues = {}; this.inheritedOrigins = {}; return; }
+    try {
+      const eff = await this.configStore.effective(q);
+      const flat = this.toUiParams(eff.values as Record<string, string | number>); flat['loadingTime'] = [flat['loadingFrom'], flat['loadingTo']].filter(Boolean).join(' - ');
+      const map: Record<string, string> = { visitRadius: 'visit_radius_m', cashTolerance: 'cash_tolerance_cents', overdueDays: 'overdue_block_days', loadingTime: 'loading_window', minimumVersion: 'min_client_version' };
+      const origins: Record<string, string> = {}; for (const [k, sk] of Object.entries(map)) origins[k] = eff.origins[sk] ?? 'SISTEMA';
+      this.inheritedValues = flat; this.inheritedOrigins = origins;
+    } catch { this.inheritedValues = {}; this.inheritedOrigins = {}; }
   }
 
   static defaultConnectionState(): Record<string, boolean> {
@@ -1211,6 +1316,7 @@ export class EnrutaState {
     this.stopEvents(); this.events.connect();
     this.eventsSub = this.events.events$.subscribe((e) => {
       if (e.type === 'route.updated' || e.type === 'route.assigned' || e.type === 'route.cancelled') this.routesDirty.next();
+      else if ((e.type === 'config.published' || e.type === 'config.acked') && ['configuration', 'forms', 'parameters', 'publish'].includes(this.view) && !this.formDirty && !this.configBusy) void this.refreshConfigVersions();
       else if (e.type === 'session.revoked') void this.session.refresh().catch(() => undefined);   // si fue revocada, el interceptor cierra la sesión (401)
     });
     this.eventsSub.add(this.routesDirty.pipe(debounceTime(250)).subscribe(() => void this.loadRoutes()));
@@ -1284,20 +1390,30 @@ export class EnrutaState {
   readonly formLabels: Record<string, string> = { entrega: 'Entrega', cobro: 'Cobro', visita: 'Visita' };
   readonly parameterKeys = ['visitRadius', 'cashTolerance', 'overdueDays', 'loadingTime', 'minimumVersion'];
 
-  get parameterValues(): Record<string, string> & { visitRadius: string; cashTolerance: string; overdueDays: string; loadingTime: string; minimumVersion: string } {
-    const key = this.parameterScope === 'Empresa' ? 'Empresa' : `${this.parameterScope}:${this.parameterScope === 'Centro' ? this.centerName : this.parameterTarget}`;
-    if (!this.parameterSets[key]) this.parameterSets[key] = { visitRadius: '', cashTolerance: '', overdueDays: '', loadingTime: '', minimumVersion: '' };
+  /** Clave de edición del ámbito seleccionado: `Empresa`, `Centro:<id>`, `Zona:<id>`, `Ruta:<id>` o `Usuario:<id>` (IDs del servidor, nunca nombres). */
+  get parameterKey(): string {
+    if (this.parameterScope === 'Empresa') return 'Empresa';
+    const id = this.parameterScope === 'Centro' ? (this.session.activeCenter()?.id ?? '') : this.parameterTarget;
+    return id ? `${this.parameterScope}:${id}` : '';
+  }
+  private static readonly EMPTY_PARAMS = { visitRadius: '', cashTolerance: '', overdueDays: '', loadingFrom: '', loadingTo: '', minimumVersion: '' };
+  get parameterValues(): Record<string, string> & { visitRadius: string; cashTolerance: string; overdueDays: string; loadingFrom: string; loadingTo: string; minimumVersion: string } {
+    const key = this.parameterKey;
+    if (!key) return { ...EnrutaState.EMPTY_PARAMS } as never;   // ámbito sin destino seleccionado: no se guarda nada
+    // Se muta en sitio (no se reasigna el signal): este getter se evalúa durante el renderizado y ahí no se pueden escribir signals.
+    if (!this.parameterSets[key]) this.parameterSets[key] = { ...EnrutaState.EMPTY_PARAMS };
     return this.parameterSets[key] as never;
   }
 
-  set parameterValues(value: Record<string, string>) { this.parameterSets['Empresa'] = { ...value }; }
+  set parameterValues(value: Record<string, string>) { this.parameterSets = { ...this.parameterSets, Empresa: { ...value } }; }
 
   get companyParameters(): Record<string, string> { return this.parameterSets['Empresa'] ?? {}; }
 
   setParameterScope(scope: 'Empresa' | 'Centro' | 'Zona' | 'Ruta' | 'Usuario'): void {
     this.parameterScope = scope;
-    this.parameterTarget = scope === 'Ruta' ? String(this.routes[0]?.id ?? '') : scope === 'Usuario' ? String(this.users[0]?.id ?? '') : '';
-    if (scope === 'Centro' && !this.centerName) this.fail('Selecciona un centro en “Cambiar de contexto” para editar sus parámetros.');
+    this.parameterTarget = scope === 'Ruta' ? String(this.routes[0]?.uid ?? '') : scope === 'Usuario' ? String(this.users[0]?.uid ?? '') : scope === 'Zona' ? (this.zonesList[0]?.id ?? '') : '';
+    if (scope === 'Centro' && !this.session.activeCenter()) this.fail('Selecciona un centro en “Cambiar de contexto” para editar sus parámetros.');
+    void this.refreshInherited();
   }
 
   get parameterNeedsTarget(): boolean { return ['Zona', 'Ruta', 'Usuario'].includes(this.parameterScope); }
@@ -1517,25 +1633,12 @@ export class EnrutaState {
 
   updateFieldOptions(text: string): void { const f = this.selectedField; if (f) { f.options = text.split('\n').map((o) => o.trim()).filter(Boolean); this.formDirty = true; } }
 
-  saveForm(): void {
-    const list = this.currentFields;
-    const bad = list.find((f) => !f.label.trim() || (f.type === 'Selección' && !(f.options?.length)));
-    if (bad) { this.selectedFieldId = bad.id; this.fail(bad.label.trim() ? `El campo “${bad.label}” necesita al menos una opción.` : 'Todos los campos necesitan una etiqueta.'); return; }
-    const min = list.find((f) => f.min !== '' && f.max !== '' && Number(f.min) > Number(f.max));
-    if (min) { this.selectedFieldId = min.id; this.fail(`En “${min.label}” el mínimo no puede ser mayor que el máximo.`); return; }
-    if (this.activeForm === 'entrega') this.deliveryFields = [...list];
-    this.formDirty = false;
-    this.pendingChanges = [...new Set([...this.pendingChanges, `Formulario de ${this.formLabels[this.activeForm].toLowerCase()} actualizado`])];
-    this.addAuditEvent(`Guardó el formulario de ${this.formLabels[this.activeForm].toLowerCase()} (${list.length} campos)`);
-    this.notify('Formulario guardado.');
-  }
 
   // ---- marca ----
   saveBrand(): void {
     if (this.brandColor && !/^#[0-9a-fA-F]{6}$/.test(this.brandColor)) { this.fail('El color debe tener formato #RRGGBB.'); return; }
     if (!this.brandName.trim()) { this.fail('Escribe el nombre visible en la app.'); return; }
     this.applyBrand();
-    this.pendingChanges = [...new Set([...this.pendingChanges, 'Marca e identidad visual actualizada'])];
     this.addAuditEvent('Guardó la marca e identidad visual');
     this.notify('Marca guardada.');
   }

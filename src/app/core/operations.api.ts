@@ -8,6 +8,15 @@ export interface RouteDto {
   status: 'DRAFT' | 'PENDING_APPROVAL' | 'PUBLISHED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'; statusLabel: string; revision: number; approvedRevision: number | null;
   lastDecision: string | null; lastDecisionReason: string | null; startedAt: string | null; stopIds: string[]; approval: { id: string; revision: number; decision: string } | null;
 }
+export interface ExecutionVisit {
+  id: string; clientName: string; status: 'OPEN' | 'CLOSED' | 'SKIPPED'; arrivedAt: string | null; distanceM: number | null; outsideRadiusReason: string | null; skipReason: string | null;
+  delivery: { status: 'DELIVERED' | 'PARTIAL' | 'FAILED'; incidentReason: string | null; totalCents: number; notes: string | null; lines: { product: string; qtyPlanned: number; qtyDelivered: number; reason: string | null }[] } | null;
+  payments: { id: string; method: string; amountCents: number; reference: string | null }[]; evidences: { id: string; kind: 'PHOTO' | 'SIGNATURE'; url: string }[];
+}
+export interface RouteExecution {
+  routeId: string; status: string; visits: ExecutionVisit[]; incidents: { id: string; label: string; detail: string | null; at: string }[];
+  summary: { delivered: number; partial: number; failed: number; skipped: number; totalCents: number; collectedCents: number };
+}
 export interface ImportResult { created: number; updated: number; skipped: number; invalid: { row: number; message: string }[]; }
 
 /** Clientes, productos y rutas del backend. Las rutas usan `revision` para concurrencia optimista y aprobación de la versión exacta. */
@@ -36,4 +45,5 @@ export class OperationsApi {
   cancelRoute(id: string): Promise<RouteDto> { return this.api.post(`/routes/${id}/cancel`, {}); }
   duplicateRoute(id: string): Promise<RouteDto> { return this.api.post(`/routes/${id}/duplicate`, {}); }
   deleteRoute(id: string): Promise<unknown> { return this.api.delete(`/routes/${id}`); }
+  execution(id: string): Promise<RouteExecution> { return this.api.get(`/routes/${id}/execution`); }
 }

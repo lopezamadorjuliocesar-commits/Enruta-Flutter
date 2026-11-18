@@ -14,7 +14,7 @@ export class EventStream {
   private source: EventSource | null = null;
   private readonly subject = new Subject<ServerEvent>();
   readonly events$: Observable<ServerEvent> = this.subject.asObservable();
-  private static readonly TYPES = ['device.linked', 'device.revoked', 'route.updated', 'route.assigned', 'route.cancelled', 'session.revoked'];
+  private static readonly TYPES = ['device.linked', 'device.revoked', 'route.updated', 'route.assigned', 'route.cancelled', 'session.revoked', 'config.published', 'config.acked', 'position'];
 
   on(...types: string[]): Observable<ServerEvent> { return this.events$.pipe(filter((e) => types.includes(e.type))); }
   get connected(): boolean { return this.source?.readyState === EventSource.OPEN; }

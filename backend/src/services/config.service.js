@@ -96,7 +96,11 @@ function createConfigService({ store, clock, bus }) {
         const draft = q.source === 'draft'; const row = draft ? await ensureDraftRead(r, ctx.companyId) : await r.config.published(ctx.companyId);
         const scope = { centerId: q.centerId || undefined, zoneId: q.zoneId || undefined, routeId: q.routeId || undefined, userId: q.userId || undefined };
         if (scope.routeId) { const route = await r.routes.get(ctx.companyId, scope.routeId); if (route) { scope.centerId ||= route.center_id; scope.zoneId ||= route.zone_id || undefined; scope.userId ||= route.operator_user_id || undefined; } }
-        return { source: draft ? 'draft' : 'published', version: draft ? null : row?.version ?? null, scope, ...params.resolve(row ? parse(row).parameters : {}, scope) };
+        let parameters = row ? parse(row).parameters : {};
+        // `inheritedFor=ZONA` devuelve lo que se heredaría SIN los valores de ese ámbito ni de los más específicos (para los marcadores de la pantalla).
+        const upTo = params.PRECEDENCE.indexOf(String(q.inheritedFor || '').toUpperCase());
+        if (upTo >= 0) { const cut = new Set(params.PRECEDENCE.slice(0, upTo + 1)); parameters = Object.fromEntries(Object.entries(parameters).filter(([k]) => !cut.has(k.split(':')[0]))); }
+        return { source: draft ? 'draft' : 'published', version: draft ? null : row?.version ?? null, scope, ...params.resolve(parameters, scope) };
       });
     },
 

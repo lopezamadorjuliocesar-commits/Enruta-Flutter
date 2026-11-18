@@ -47,8 +47,8 @@ export class ApiClient {
   put<T>(path: string, body: unknown = {}, opts: { keepAlive?: boolean } = {}): Promise<T> { return this.run(this.http.put<T>(`${API_BASE}${path}`, body), !!opts.keepAlive); }
   patch<T>(path: string, body: unknown = {}, opts: { keepAlive?: boolean } = {}): Promise<T> { return this.run(this.http.patch<T>(`${API_BASE}${path}`, body), !!opts.keepAlive); }
   delete<T>(path: string, opts: { keepAlive?: boolean } = {}): Promise<T> { return this.run(this.http.delete<T>(`${API_BASE}${path}`), !!opts.keepAlive); }
-  /** Subida binaria (foto de perfil). */
-  upload<T>(path: string, blob: Blob): Promise<T> {
-    return this.run(this.http.post<T>(`${API_BASE}${path}`, blob, { headers: new HttpHeaders({ 'Content-Type': blob.type }) }), false);
+  /** Subida binaria (foto de perfil, evidencias). `headers` añade credenciales de dispositivo / Idempotency-Key. */
+  upload<T>(path: string, blob: Blob, headers: Record<string, string> = {}): Promise<T> {
+    return this.run(this.http.post<T>(`${API_BASE}${path}`, blob, { headers: new HttpHeaders({ ...headers, 'Content-Type': blob.type }) }), false);
   }
 }

@@ -88,11 +88,12 @@ Una empresa registrada con validación simulada queda con `fiscal_status=SIMULAT
 ## 8. Pruebas
 
 ```bash
-npm run test:backend                         # 131 pruebas node:test
+npm run test:backend                         # 153 pruebas node:test
 npm test                                     # Karma (CHROME_BIN=/ruta/a/chrome si no está en el PATH)
 npm run seed:reset && npm run start:backend  # y en otra terminal: npm start
 npm run e2e:phase1                           # humo E2E (Fase 1, 12 pasos) con Playwright
 npm run e2e:phase2                           # humo E2E (Fase 2, 15 pasos: rutas, QR, móvil, tiempo real)
+npm run e2e:phase3                           # humo E2E (Fase 3 · puntos 8–10, 17 pasos: formularios, publicación, entrega, cobro, GPS, simulador)
 ```
 
 ## 9. Contrato REST para el móvil (Flutter)
@@ -106,7 +107,19 @@ No hay proyecto Flutter en este repositorio. Contrato `/api/mobile/v1` disponibl
   - `POST /api/mobile/v1/routes/:id/start` — inicia la ruta (idempotente; solo la versión aprobada).
 - Errores de dispositivo: `403 DEVICE_REQUIRED`, `401 DEVICE_REVOKED`, `403 DEVICE_BLOCKED`, `403 DEVICE_DRIVER_MISMATCH`.
 - Tiempo real: `GET /api/events` (SSE).
-- Visitas, entregas, cobros, evidencias y GPS llegan en la Fase 3.
+- Ejecución en campo (todas las que escriben exigen `Idempotency-Key`, 8–80 caracteres; reenviarla devuelve la respuesta original con `Idempotent-Replay: true`):
+  - `GET /api/mobile/v1/products` · `GET /api/mobile/v1/incident-reasons` · `GET /api/mobile/v1/config` (versión publicada: módulos, formularios y parámetros efectivos) · `POST /api/mobile/v1/config/ack` `{ version }`.
+  - `POST /api/mobile/v1/routes/:id/stops/:clientId/arrive` `{ lat, lng, outsideReason?, form?, formVersion? }` (`422 OUTSIDE_RADIUS` fuera del radio) · `…/skip` `{ reason }`.
+  - `POST /api/mobile/v1/visits/:id/delivery` `{ lines:[{productId, qtyPlanned, qtyDelivered, discountBp?, reason?}], incidentReason?, notes?, form?, formVersion? }` · `…/evidences?kind=PHOTO|SIGNATURE` (cuerpo = imagen PNG/JPEG/WebP, `Content-Type` de la imagen) · `…/payments` `{ method: CASH|TRANSFER|CARD, amountCents, reference?, form? }` · `…/close`.
+  - `POST /api/mobile/v1/routes/:id/finish` · `POST /api/mobile/v1/incidents` `{ routeId, reason, visitId?, detail? }`.
+  - `POST /api/mobile/v1/positions` `{ routeId, positions:[{lat, lng, accuracy?, speed?, heading?, recordedAt}] }` (≤ 100; solo con la ruta en ejecución).
+  - Cabecera `X-Client-Version`: si la versión mínima publicada es mayor → `426 UPGRADE_REQUIRED`. Otros códigos: `OUTSIDE_LOADING_WINDOW`, `CREDIT_BLOCKED`, `OVERPAYMENT`, `VISITS_PENDING`, `DELIVERY_REQUIRED`, `FORM_INVALID`.
+- Panel (sesión + permisos): `GET /api/routes/:id/execution`, `GET /api/evidences/:id` (`tracking.read`); `GET /api/tracking/live`, `GET /api/tracking/routes/:id/history`; `POST|DELETE /api/routes/:id/simulation` (`simulator.run`); `GET /api/config`, `PUT /api/config/draft` (`config.manage`), `POST /api/config/publish` (`config.publish`), `GET /api/config/versions[/:v]`, `GET /api/parameters/effective?routeId=&zoneId=&userId=&centerId=&source=draft&inheritedFor=ZONA`.
+
+### GPS, simulador y configuración
+- Estado de un vehículo: **Ubicación real** (GPS del teléfono, dato de ≤ `GPS_STALE_SECONDS`), **Ubicación simulada** (simulador), **Desactualizado** (hasta `GPS_OFFLINE_SECONDS`) y **Desconectado**. «En vivo» solo aparece con al menos un vehículo real reciente.
+- Simulador: Torre de control → «Simular recorrido» en una ruta **en ejecución** (requiere `SIMULATOR_ENABLED=true`, activo por defecto fuera de producción). Se rotula como simulado en la interfaz.
+- Configuración: edita módulos, formularios y parámetros (se guardan como **borrador**) y publícalos en «Configuración → Revisar publicación». Los dispositivos solo ven lo **publicado** y confirman su recepción.
 
 ## 10. Producción (resumen)
 Define `NODE_ENV=production`, `DATA_ENCRYPTION_KEY`, `MAIL_MODE=smtp`, `COOKIE_SECURE=true` y sirve web y API bajo el mismo dominio HTTPS (proxy inverso). La migración a PostgreSQL está en DECISIONES_TECNICAS.md §4.

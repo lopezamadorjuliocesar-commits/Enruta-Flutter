@@ -17,6 +17,8 @@ export interface MapMarker {
   detail?: string;
   status?: string;
   arrival?: string;
+  /** Marcador de vehículo (torre de control): su estilo depende del origen/frescura del dato. */
+  vehicle?: 'REAL' | 'SIMULATED' | 'STALE' | 'OFFLINE';
 }
 export interface MapLine { color: string; coords: number[][]; }
 
@@ -31,6 +33,9 @@ export class RouteMapComponent implements AfterViewInit, DoCheck, OnDestroy {
   @Input() lines: MapLine[] = [];
   @Input() height = 320;
   @Input() pick = false;
+  /** Solo reencuadra cuando cambian las paradas/líneas, no con cada actualización de posición de un vehículo. */
+  @Input() fitOnce = false;
+  private fitKey = '';
   @Output() picked = new EventEmitter<{ lat: number; lng: number }>();
   @ViewChild('host', { static: true }) host!: ElementRef<HTMLDivElement>;
 
@@ -109,9 +114,12 @@ export class RouteMapComponent implements AfterViewInit, DoCheck, OnDestroy {
     for (const item of this.markers) {
       const el = document.createElement('div');
       const role = item.role ?? (item.order ? 'stop' : undefined);
-      el.className = role ? `map-stop-marker map-stop-${role}` : 'map-dot';
-      if (!role) el.style.background = item.color || '#1769aa';
-      el.textContent = role === 'start' ? '▶' : role === 'destination' ? '⚑' : item.order ? String(item.order) : '';
+      if (item.vehicle) { el.className = `map-vehicle map-vehicle-${item.vehicle.toLowerCase()}`; el.style.setProperty('--vehicle', item.color || '#1769aa'); el.textContent = '➤'; }
+      else {
+        el.className = role ? `map-stop-marker map-stop-${role}` : 'map-dot';
+        if (!role) el.style.background = item.color || '#1769aa';
+        el.textContent = role === 'start' ? '▶' : role === 'destination' ? '⚑' : item.order ? String(item.order) : '';
+      }
       el.setAttribute('aria-label', this.markerDescription(item));
       el.title = this.markerDescription(item);
       const popupContent = document.createElement('div');
@@ -142,8 +150,9 @@ export class RouteMapComponent implements AfterViewInit, DoCheck, OnDestroy {
     });
     (this.map.getSource('lines') as any)?.setData({ type: 'FeatureCollection', features });
     this.map.getCanvas().style.cursor = this.pick ? 'crosshair' : '';
-    if (count && (!this.pick || !this.fitted)) {
-      this.fitted = true;
+    const key = this.fitOnce ? JSON.stringify([this.markers.map((m) => (m.vehicle ? `v${m.id}` : m.id)), this.lines.length]) : '';
+    if (count && (this.fitOnce ? key !== this.fitKey : (!this.pick || !this.fitted))) {
+      this.fitted = true; this.fitKey = key;
       if (this.markers.length === 1 && !features.length) this.map.easeTo({ center: [this.markers[0].lng, this.markers[0].lat], zoom: Math.max(this.map.getZoom(), 14) });
       else this.map.fitBounds(bounds, { padding: 50, maxZoom: 15, duration: 600 });
     }
