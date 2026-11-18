@@ -1,3 +1,4 @@
+const { PermanentError } = require('../queue/queue');
 const XML_LIMIT = 900_000;
 const ID_CCP_RE = /^CCC[A-F0-9]{5}-[A-F0-9]{4}-4[A-F0-9]{3}-[89AB][A-F0-9]{3}-[A-F0-9]{12}$/i;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -50,6 +51,11 @@ async function stampCartaPorte(document) {
   validateProviderConfiguration();
 
   if (mode === 'sandbox') {
+    // Modo local DETERMINISTA (como el de RFC): el prefijo del folio decide el resultado para probar éxito, rechazo, error y timeout.
+    const scenario = String(document.folio || '').slice(0, 3).toUpperCase();
+    if (scenario === 'REJ') throw new PermanentError('El PAC rechazó el comprobante (simulación local): datos fiscales inconsistentes.');
+    if (scenario === 'ERR') throw new Error('Error del PAC simulado (simulación local).');
+    if (scenario === 'TMO') { await new Promise((r) => setTimeout(r, Number(process.env.PAC_LOCAL_TIMEOUT_MS || 200))); throw new Error('El PAC no respondió a tiempo (timeout simulado).'); }
     return {
       status: 'Simulado',
       simulated: true,

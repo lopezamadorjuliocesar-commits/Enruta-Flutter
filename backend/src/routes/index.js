@@ -7,7 +7,7 @@ const { detectImage } = require('../storage/file-store');
 const h = require('../middleware/http');
 
 module.exports = function createRoutes({ config, store, queue, services, adapters, files, clock, bus, idempotency }) {
-  const { auth, admin, catalog, fiscal, fleet, routes, config: cfg, execution, tracking } = services;
+  const { reports, integrations, auth, admin, catalog, fiscal, fleet, routes, config: cfg, execution, tracking, pricing, inventory, settlements } = services;
   const { cmpVersion } = require('../services/params');
   const { HttpError } = require('../utils/errors');
   const router = express.Router();
@@ -177,7 +177,9 @@ module.exports = function createRoutes({ config, store, queue, services, adapter
   router.post('/mobile/v1/routes/:id/start', need('deliveries.execute'), deviceGuard, wrap(async (req, res) => res.json(await routes.start(req.ctx, req.params.id))));
   // Ejecución en campo: todas las acciones que escriben exigen Idempotency-Key.
   const field = [need('deliveries.execute'), deviceGuard];
-  router.get('/mobile/v1/products', ...field, wrap(async (req, res) => res.json(await execution.catalog(req.ctx))));
+  router.get('/mobile/v1/products', ...field, wrap(async (req, res) => res.json(await execution.catalog(req.ctx, req.query.clientId ? String(req.query.clientId) : null))));
+  router.post('/mobile/v1/visits/:id/display-audit', ...field, idempotency, wrap(async (req, res) => res.status(201).json(await execution.displayAudit(req.ctx, req.params.id, req.body || {}))));
+  router.post('/mobile/v1/visits/:id/assets/:action', ...field, idempotency, wrap(async (req, res) => res.status(201).json(await execution.assetAction(req.ctx, req.params.id, req.params.action, req.body || {}))));
   router.get('/mobile/v1/incident-reasons', ...field, (_req, res) => res.json(execution.incidentCatalog()));
   router.get('/mobile/v1/config', ...field, wrap(async (req, res) => res.json(await cfg.forDevice(req.ctx))));
   router.post('/mobile/v1/config/ack', ...field, wrap(async (req, res) => res.json(await cfg.ack(req.ctx, req.device.id, req.body?.version))));
@@ -212,6 +214,13 @@ module.exports = function createRoutes({ config, store, queue, services, adapter
 
   // Auditoría y notificaciones
   router.get('/audit', need('audit.read'), wrap(async (req, res) => res.json(await admin.audits.list(req.ctx, req.query))));
+  router.get('/audit/export.csv', need('audit.read'), wrap(async (req, res) => {
+    const rows = await admin.audits.list(req.ctx, { ...req.query, limit: 500 }); const { csv } = require('../services/reports.service');
+    res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="bitacora.csv"', 'Cache-Control': 'private, no-store' })
+      .send(csv([['Fecha', 'Actor', 'Acción', 'Entidad', 'Id entidad', 'Detalle', 'IP'], ...rows.map((e) => [e.at, e.actor, e.action, e.entity, e.entityId, e.detail ? JSON.stringify(e.detail) : '', e.ip])]));
+  }));
+  router.get('/reports/summary', need('reports.read'), wrap(async (req, res) => res.json(await reports.summary(req.ctx, req.query))));
+  router.get('/reports/export.csv', need('reports.read'), wrap(async (req, res) => res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="indicadores.csv"', 'Cache-Control': 'private, no-store' }).send(await reports.exportCsv(req.ctx, req.query))));
   router.get('/audit/verify', need('audit.read'), wrap(async (req, res) => res.json(await admin.audits.verify(req.ctx))));
   router.get('/notifications', wrap(async (req, res) => res.json(await admin.notifications.list(req.ctx, req.query))));
   router.patch('/notifications/:id/read', wrap(async (req, res) => res.json(await admin.notifications.markRead(req.ctx, req.params.id))));
@@ -248,6 +257,48 @@ module.exports = function createRoutes({ config, store, queue, services, adapter
     const rows = await store.read((r) => r.jobs.list({ companyId: req.ctx.companyId, status: req.query.status, type: req.query.type, limit: 100 }));
     res.json(rows.map((j) => ({ id: j.id, type: j.type, status: j.status, attempts: j.attempts, maxAttempts: j.max_attempts, runAt: j.run_at, lastError: j.last_error, createdAt: j.created_at })));
   }));
+
+  router.get('/integrations', need('config.manage'), (_req, res) => res.json(integrations.list()));
+
+  // ---------- Precios, promociones y descuentos (DT-46) ----------
+  router.get('/price-lists', need('prices.read'), wrap(async (req, res) => res.json(await pricing.lists(req.ctx))));
+  router.get('/price-lists/:id', need('prices.read'), wrap(async (req, res) => res.json(await pricing.list(req.ctx, req.params.id))));
+  router.post('/price-lists', need('prices.write'), wrap(async (req, res) => res.status(201).json(await pricing.saveList(req.ctx, null, req.body || {}))));
+  router.put('/price-lists/:id', need('prices.write'), wrap(async (req, res) => res.json(await pricing.saveList(req.ctx, req.params.id, req.body || {}))));
+  router.delete('/price-lists/:id', need('prices.write'), wrap(async (req, res) => res.json(await pricing.deleteList(req.ctx, req.params.id))));
+  router.get('/promotions', need('prices.read'), wrap(async (req, res) => res.json(await pricing.promotions(req.ctx))));
+  router.post('/promotions', need('prices.write'), wrap(async (req, res) => res.status(201).json(await pricing.savePromotion(req.ctx, null, req.body || {}))));
+  router.put('/promotions/:id', need('prices.write'), wrap(async (req, res) => res.json(await pricing.savePromotion(req.ctx, req.params.id, req.body || {}))));
+  router.delete('/promotions/:id', need('prices.write'), wrap(async (req, res) => res.json(await pricing.deletePromotion(req.ctx, req.params.id))));
+  router.get('/discount-rules', need('prices.read'), wrap(async (req, res) => res.json(await pricing.discounts(req.ctx))));
+  router.post('/discount-rules', need('prices.write'), wrap(async (req, res) => res.status(201).json(await pricing.saveDiscount(req.ctx, null, req.body || {}))));
+  router.put('/discount-rules/:id', need('prices.write'), wrap(async (req, res) => res.json(await pricing.saveDiscount(req.ctx, req.params.id, req.body || {}))));
+  router.delete('/discount-rules/:id', need('prices.write'), wrap(async (req, res) => res.json(await pricing.deleteDiscount(req.ctx, req.params.id))));
+  router.get('/pricing/quote', need('prices.read'), wrap(async (req, res) => res.json(await pricing.quote(req.ctx, req.query))));
+
+  // ---------- Inventario, carga de ruta, preventa, comodato y exhibición (DT-46b) ----------
+  router.get('/inventory/stock', need('inventory.read'), wrap(async (req, res) => res.json(await inventory.stock(req.ctx, req.query))));
+  router.post('/inventory/adjust', need('inventory.manage'), wrap(async (req, res) => res.json(await inventory.adjust(req.ctx, req.body || {}))));
+  router.get('/inventory/movements', need('inventory.read'), wrap(async (req, res) => res.json(await inventory.movements(req.ctx, req.query))));
+  router.get('/routes/:id/load', need('inventory.read'), wrap(async (req, res) => res.json(await inventory.routeLoad(req.ctx, req.params.id))));
+  router.post('/routes/:id/load', need('inventory.manage'), wrap(async (req, res) => res.status(201).json(await inventory.loadRoute(req.ctx, req.params.id, req.body || {}))));
+  router.get('/orders', needAny('orders.manage', 'inventory.read'), wrap(async (req, res) => res.json(await inventory.orders(req.ctx, req.query))));
+  router.post('/orders', need('orders.manage'), wrap(async (req, res) => res.status(201).json(await inventory.createOrder(req.ctx, req.body || {}))));
+  router.post('/orders/:id/cancel', need('orders.manage'), wrap(async (req, res) => res.json(await inventory.cancelOrder(req.ctx, req.params.id))));
+  router.get('/assets', need('inventory.read'), wrap(async (req, res) => res.json(await inventory.assets(req.ctx, req.query))));
+  router.post('/assets', need('inventory.manage'), wrap(async (req, res) => res.status(201).json(await inventory.createAsset(req.ctx, req.body || {}))));
+  router.post('/assets/:id/:action(loan|return|retire)', need('inventory.manage'), wrap(async (req, res) => res.json(await inventory.assetAction(req.ctx, req.params.id, req.params.action, req.body || {}))));
+  router.get('/assets/:id/events', need('inventory.read'), wrap(async (req, res) => res.json(await inventory.assetEvents(req.ctx, req.params.id))));
+  router.get('/display-audits', need('tracking.read'), wrap(async (req, res) => res.json(await inventory.displayAudits(req.ctx))));
+
+  // ---------- Liquidaciones (DT-47) ----------
+  router.get('/settlements', need('settlements.read'), wrap(async (req, res) => res.json(await settlements.list(req.ctx))));
+  router.get('/settlements/:id', need('settlements.read'), wrap(async (req, res) => res.json(await settlements.get(req.ctx, req.params.id))));
+  router.post('/routes/:id/settlement', need('settlements.manage'), wrap(async (req, res) => res.status(201).json(await settlements.openForRoute(req.ctx, req.params.id))));
+  router.post('/settlements/:id/deposits', need('settlements.manage'), idempotency, wrap(async (req, res) => res.status(201).json(await settlements.addDeposit(req.ctx, req.params.id, req.body || {}))));
+  router.post('/settlements/:id/submit', need('settlements.manage'), idempotency, wrap(async (req, res) => res.json(await settlements.submit(req.ctx, req.params.id))));
+  router.post('/settlements/:id/authorize', need('settlements.authorize'), idempotency, wrap(async (req, res) => res.json(await settlements.decide(req.ctx, req.params.id, true, req.body || {}))));
+  router.post('/settlements/:id/reject', need('settlements.authorize'), idempotency, wrap(async (req, res) => res.json(await settlements.decide(req.ctx, req.params.id, false, req.body || {}))));
 
   router.use((_req, _res, next) => next(notFound('Ruta no encontrada.')));
   return router;

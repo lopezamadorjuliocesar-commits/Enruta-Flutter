@@ -22,12 +22,14 @@ module.exports = function systemRepos(conn) {
         run(`INSERT INTO audit_log (company_id,center_id,actor_id,actor_name,action,entity,entity_id,detail,ip,created_at,prev_hash,hash)
              VALUES (@company_id,@center_id,@actor_id,@actor_name,@action,@entity,@entity_id,@detail,@ip,@created_at,@prev_hash,@hash)`, row);
       },
-      async list(companyId, { from, to, actorId, action, centerIds, limit = 100, offset = 0 } = {}) {
+      async list(companyId, { from, to, actorId, action, entity, q, centerIds, limit = 100, offset = 0 } = {}) {
         const where = ['company_id=@companyId']; const p = { companyId, limit: Math.min(Math.max(Number(limit) || 100, 1), 500), offset: Math.max(Number(offset) || 0, 0) };
         if (from) { where.push('created_at>=@from'); p.from = from; }
         if (to) { where.push('created_at<=@to'); p.to = to; }
         if (actorId) { where.push('actor_id=@actorId'); p.actorId = actorId; }
         if (action) { where.push('action LIKE @action'); p.action = `${action}%`; }
+        if (entity) { where.push('entity=@entity'); p.entity = entity; }
+        if (q) { where.push('(action LIKE @q OR actor_name LIKE @q OR entity_id LIKE @q OR detail LIKE @q)'); p.q = `%${q}%`; }
         if (centerIds) { if (!centerIds.length) return []; where.push(`(center_id IS NULL OR center_id IN (${centerIds.map((c, i) => { p[`c${i}`] = c; return `@c${i}`; }).join(',')}))`); }
         return all(`SELECT * FROM audit_log WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT @limit OFFSET @offset`, p)
           .map((r) => ({ ...r, detail: r.detail ? JSON.parse(r.detail) : null }));

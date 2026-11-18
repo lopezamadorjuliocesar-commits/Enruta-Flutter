@@ -47,7 +47,7 @@ function createFiscalService({ store, queue, clock }) {
       const result = await stampCartaPorte({ folio: doc.folio, id_ccp: doc.id_ccp, document_data: JSON.parse(doc.document_data), xml_content: doc.xml_content });
       await store.tx((r) => r.cartaPorte.setStatus(companyId, documentId, { status: result.status, attempts: job.attempts, simulated: result.status === 'Simulado' ? 1 : 0, pacUuid: result.uuid || null, stampedXml: result.stampedXml || null, stampedAt: result.stampedAt || null }));
     } catch (e) {
-      const final = job.attempts >= job.max_attempts;
+      const final = e instanceof PermanentError || job.attempts >= job.max_attempts;
       await store.tx((r) => r.cartaPorte.setStatus(companyId, documentId, { status: final ? 'Error' : 'EnCola', attempts: job.attempts, error: e.message }));
       throw e;
     }

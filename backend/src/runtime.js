@@ -17,6 +17,11 @@ const { EventBus } = require('./realtime/bus');
 const { createConfigService } = require('./services/config.service');
 const { createExecutionService } = require('./services/execution.service');
 const { createTrackingService } = require('./services/tracking.service');
+const { createPricingService } = require('./services/pricing.service');
+const { createInventoryService } = require('./services/inventory.service');
+const { createReportsService } = require('./services/reports.service');
+const { createIntegrations } = require('./services/integrations');
+const { createSettlementsService } = require('./services/settlements.service');
 const { CATALOG } = require('./services/permissions');
 const http = require('./middleware/http');
 const createRoutes = require('./routes');
@@ -33,6 +38,9 @@ async function createRuntime(config, { clock = () => Date.now(), logger = consol
 
   const files = createFileStore(config.storageDir);
   const adapters = { rfc: createRfcAdapter(config, { fetchImpl }), mail: createMailAdapter(config, store) };
+  const integrations = createIntegrations({ config, adapters, clock });
+  const rfcValidate = adapters.rfc.validate.bind(adapters.rfc);
+  adapters.rfc.validate = async (input) => { const out = await rfcValidate(input); if (!out.simulated) integrations.record('rfc', ['VERIFIED', 'REJECTED', 'MISMATCH'].includes(out.status), out.message); return out; };
   const queue = createQueue({ store, config, now: clock, logger });
   const bus = new EventBus({ logger });
   const auth = createAuthService({ config, store, queue, adapters, clock, bus });
@@ -42,11 +50,17 @@ async function createRuntime(config, { clock = () => Date.now(), logger = consol
   const fleet = createFleetService({ config, store, clock, bus });
   const configSvc = createConfigService({ store, clock, bus });
   const execution = createExecutionService({ store, clock, bus, files, config: configSvc });
+  const reports = createReportsService({ store, clock });
+  const pricing = createPricingService({ store, clock });
+  const inventory = createInventoryService({ store, clock, queue, config: configSvc });
+  const settlements = createSettlementsService({ store, clock, config: configSvc });
   const routes = createRoutesService({ store, clock, bus, config: configSvc, execution });
   const tracking = createTrackingService({ store, clock, bus, config });
   await tracking.resetSimulations();
-  queue.register('SEND_MAIL', async (payload) => { await adapters.mail.send(payload); return { scrubPayload: true }; });
-  queue.register('CARTA_PORTE_STAMP', (payload, job) => fiscal.stampJob(payload, job));
+  queue.register('SEND_MAIL', async (payload) => { try { await adapters.mail.send(payload); integrations.record('mail', true); } catch (e) { integrations.record('mail', false, e); throw e; } return { scrubPayload: true }; });
+  queue.register('NOTIFY', async ({ companyId, centerId = null, category = 'Sistema', title, detail = null }) => { await store.tx((r) => r.notifications.add({ companyId, centerId, category, title, detail, createdAt: new Date(clock()).toISOString() })); });
+  queue.register('CARTA_PORTE_STAMP', async (payload, job) => { try { const out = await fiscal.stampJob(payload, job); if (config.pacMode === 'live') integrations.record('pac', true); return out; } catch (e) { if (config.pacMode === 'live') integrations.record('pac', false, e); throw e; } });
+  queue.register('STOCK_ALERT', (payload) => inventory.stockAlertJob(payload));
 
   const app = express();
   app.set('trust proxy', 1);
@@ -55,7 +69,7 @@ async function createRuntime(config, { clock = () => Date.now(), logger = consol
   app.use('/api', (req, res, next) => { res.set('X-Content-Type-Options', 'nosniff'); next(); });
   app.use(express.json({ limit: '2mb' }));
   app.use('/api', http.csrfGuard);
-  const services = { auth, admin, catalog, fiscal, fleet, routes, config: configSvc, execution, tracking };
+  const services = { reports, integrations, auth, admin, catalog, fiscal, fleet, routes, config: configSvc, execution, tracking, pricing, inventory, settlements };
   app.use('/api', createRoutes({ config, store, queue, services, adapters, files, clock, bus, idempotency: require('./middleware/idempotency')({ store, clock }) }));
   app.use(http.errorHandler(logger));
 

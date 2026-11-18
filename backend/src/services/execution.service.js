@@ -9,6 +9,7 @@ const { detectImage } = require('../storage/file-store');
 const { makeAudit } = require('./context');
 const params = require('./params');
 const forms = require('./forms');
+const core = require('./commerce.core');
 
 const INCIDENT_REASONS = { CLIENT_CLOSED: 'Cliente cerrado', NO_ONE: 'Nadie atiende', REJECTED: 'Rechazó el pedido', NO_CASH: 'Sin efectivo / sin pago', ADDRESS: 'Dirección incorrecta', STOCKOUT: 'Sin existencias', DAMAGED: 'Producto dañado', OTHER: 'Otro' };
 const METHODS = ['CASH', 'TRANSFER', 'CARD'];
@@ -29,7 +30,7 @@ function computeBalance(entries, nowMs, overdueDays) {
   return { balanceCents: balance, overdueCents: overdue, oldestOverdueDays: oldest };
 }
 
-function createExecutionService({ store, clock, bus, files, config }) {
+function createExecutionService({ store, clock, bus, files, config, queue }) {
   const audit = makeAudit(clock); const now = () => iso(new Date(clock()));
   const emit = (ctx, route, what, extra = {}) => bus?.publish({ companyId: ctx.companyId, centerId: route.center_id, type: 'route.updated', data: { routeId: route.id, status: route.status, revision: route.revision, what, ...extra } });
 
@@ -67,7 +68,17 @@ function createExecutionService({ store, clock, bus, files, config }) {
     INCIDENT_REASONS, computeBalance, distanceMeters,
     incidentCatalog: () => Object.entries(INCIDENT_REASONS).map(([code, label]) => ({ code, label })),
 
-    async catalog(ctx) { return store.read(async (r) => (await r.products.list(ctx.companyId, { status: 'ACTIVE' })).map((p) => ({ id: p.id, sku: p.sku, name: p.name, unit: p.unit, priceCents: p.price_cents }))); },
+    /** Catálogo con el precio EFECTIVO para el cliente (lista → promoción) si se indica `clientId`; sin cliente, el precio base. */
+    async catalog(ctx, clientId = null) {
+      return store.read(async (r) => {
+        const out = [];
+        for (const p of await r.products.list(ctx.companyId, { status: 'ACTIVE' })) {
+          let price = null; try { price = await core.unitPrice(r, { companyId: ctx.companyId, clientId, productId: p.id, nowMs: clock(), tz: ctx.company?.timezone }); } catch { /* sin precio: no se ofrece a la venta */ }
+          out.push({ id: p.id, sku: p.sku, name: p.name, unit: p.unit, priceCents: price?.unitCents ?? null, listPriceCents: price?.listPriceCents ?? null, promoCents: price?.promoCents ?? 0, promotion: price?.promotion ?? null });
+        }
+        return out;
+      });
+    },
 
     /** Estado de ejecución de las paradas de una ruta del operador (para la vista móvil). */
     async stopsState(ctx, routeId) {
@@ -75,7 +86,8 @@ function createExecutionService({ store, clock, bus, files, config }) {
         const route = await r.routes.get(ctx.companyId, routeId); if (!route) return []; const eff = await effective(r, ctx, route); const out = [];
         for (const s of await r.routes.stopClients(routeId)) {
           const v = await r.visits.byRouteClient(routeId, s.id); const d = v ? await r.deliveries.byVisit(v.id) : null; const bal = await balanceOf(r, ctx, s.id, eff.values.overdue_block_days);
-          out.push({ clientId: s.id, visit: v ? visitDto(v, { deliveryStatus: d?.status ?? null, totalCents: d?.total_cents ?? 0, paidCents: await r.payments.sumByVisit(v.id), photos: await r.evidences.count(v.id, 'PHOTO'), signatures: await r.evidences.count(v.id, 'SIGNATURE') }) : null, ...bal });
+          const order = await r.orders.openForClient(ctx.companyId, s.id); const assets = await r.assets.ofClient(ctx.companyId, s.id);
+          out.push({ clientId: s.id, order: order ? { id: order.id, notes: order.notes, lines: (await r.orders.lines(order.id)).map((l) => ({ productId: l.product_id, name: l.product_name, unit: l.unit, qty: l.qty })) } : null, assets: assets.map((a) => ({ id: a.id, code: a.code, kind: a.kind })), displayAudit: v ? !!(await r.displayAudits.byVisit(v.id)) : false, visit: v ? visitDto(v, { deliveryStatus: d?.status ?? null, totalCents: d?.total_cents ?? 0, paidCents: await r.payments.sumByVisit(v.id), photos: await r.evidences.count(v.id, 'PHOTO'), signatures: await r.evidences.count(v.id, 'SIGNATURE') }) : null, ...bal });
         }
         return out;
       });
@@ -118,19 +130,36 @@ function createExecutionService({ store, clock, bus, files, config }) {
           if (bp > 0 && !ctx.can('discounts.apply')) throw forbidden('No tienes permiso para aplicar descuentos.', 'PERMISSION_DENIED');
           if (bp > ctx.maxDiscountBp && !ctx.can('discounts.over_limit')) throw new HttpError(403, 'DISCOUNT_LIMIT', `Tu tope de descuento es ${(ctx.maxDiscountBp / 100).toFixed(2)} %.`);
           if (qd < qp && !str(l.reason, 'El motivo', { max: 160 })) short.push(p.name);
-          if (qd > 0 && (p.price_cents === null || p.price_cents === undefined)) throw unprocessable(`El producto ${p.name} no tiene precio.`, 'PRODUCT_NO_PRICE');
-          const unit = p.price_cents ?? 0; totalCents += Math.round((qd * unit * (10000 - bp)) / 10000); planned += qp; delivered += qd;
-          lines.push({ productId: p.id, qtyPlanned: qp, qtyDelivered: qd, unitPriceCents: unit, discountBp: bp, reason: str(l.reason, 'El motivo', { max: 160 }) });
+          let pr = null; try { pr = await core.unitPrice(r, { companyId: ctx.companyId, clientId: visit.client_id, productId: p.id, nowMs: clock(), tz: ctx.company?.timezone }); } catch (e) { if (qd > 0 || e.code !== 'PRODUCT_NO_PRICE') throw e; }
+          const unit = pr?.unitCents ?? 0; totalCents += Math.round((qd * unit * (10000 - bp)) / 10000); planned += qp; delivered += qd;
+          lines.push({ productId: p.id, qtyPlanned: qp, qtyDelivered: qd, unitPriceCents: unit, listPriceCents: pr?.listPriceCents ?? null, promoCents: pr?.promoCents ?? 0, priceSource: pr?.source ?? null, discountBp: bp, reason: str(l.reason, 'El motivo', { max: 160 }) });
         }
         const status = !lines.length || delivered === 0 ? 'FAILED' : delivered === planned ? 'DELIVERED' : 'PARTIAL';
+        // Preventa (pedido anticipado del cliente) y autoventa (venta desde la carga del camión): condicionadas al módulo publicado.
+        const sale = b.sale === true; let order = null;
+        if (sale) { core.requireModule(eff.payload, core.MODULE.AUTOVENTA); if (lines.some((l) => l.qtyPlanned !== l.qtyDelivered)) throw unprocessable('En autoventa se vende lo entregado: pedido y entregado deben coincidir.', 'SALE_QTY_MISMATCH'); }
+        if (b.orderId) {
+          core.requireModule(eff.payload, core.MODULE.PREVENTA);
+          order = await r.orders.get(ctx.companyId, String(b.orderId));
+          if (!order || order.client_id !== visit.client_id || !(order.status === 'OPEN' || order.delivered_visit_id === visitId)) throw new HttpError(409, 'ORDER_NOT_AVAILABLE', 'El pedido no existe, no es de este cliente o ya fue entregado.');
+          const ol = new Map((await r.orders.lines(order.id)).map((x) => [x.product_id, x]));
+          for (const l of lines) { const o = ol.get(l.productId); if (!o) throw unprocessable('La entrega incluye un producto que no está en el pedido.', 'ORDER_LINE_UNKNOWN'); if (l.qtyPlanned !== o.qty) throw unprocessable(`La cantidad pedida de ${o.product_name} debe ser ${o.qty} (la del pedido).`, 'ORDER_QTY_MISMATCH'); }
+        }
+        const prevLines = await r.deliveries.byVisit(visitId).then(async (d0) => (d0 ? r.deliveries.linesOf(d0.id) : []));
+        await core.consumeLoad(r, route, { sale, prior: new Map(prevLines.map((x) => [x.product_id, x.qty_delivered])), next: new Map(lines.map((x) => [x.productId, x.qtyDelivered])) });
         if (status !== 'FAILED' && short.length) throw unprocessable(`Indica el motivo de la entrega parcial de ${short[0]}.`, 'LINE_REASON_REQUIRED');
         let incident = null;
         if (status === 'FAILED') { incident = String(b.incidentReason ?? ''); if (!INCIDENT_REASONS[incident]) throw unprocessable('Una entrega fallida requiere un motivo de incidencia.', 'INCIDENT_REQUIRED'); }
         const form = await formFor(r, ctx, 'entrega', b.formVersion, eff); checkForm(form.fields, b.form);
         const d = await r.deliveries.replace({ id: uuid(), companyId: ctx.companyId, visitId, status, incidentReason: incident, notes: str(b.notes, 'Las notas', { max: 300 }), formVersion: form.version, formData: b.form ? JSON.stringify(b.form) : null, totalCents }, lines);
+        if (order) {
+          const delivered2 = new Map(lines.map((x) => [x.productId, x.qtyDelivered]));
+          for (const ol of await r.orders.lines(order.id)) await r.orders.setDelivered(order.id, ol.product_id, delivered2.get(ol.product_id) ?? 0);
+          await r.orders.setStatus(order.id, (await r.orders.lines(order.id)).every((x) => x.qty_delivered >= x.qty) ? 'DELIVERED' : 'PARTIAL'); await r.orders.setDeliveredVisit(order.id, visitId);
+        }
         await r.ledger.removeChargesOfVisit(visitId);
         if (totalCents > 0) await r.ledger.add({ id: uuid(), companyId: ctx.companyId, clientId: visit.client_id, kind: 'CHARGE', amountCents: totalCents, routeId: route.id, visitId, refId: d.id, createdAt: now() });
-        await audit(r, ctx, 'delivery.recorded', { entity: 'delivery', entityId: d.id, centerId: route.center_id, detail: { visitId, status, totalCents, lines: lines.length } });
+        await audit(r, ctx, 'delivery.recorded', { entity: 'delivery', entityId: d.id, centerId: route.center_id, detail: { visitId, status, totalCents, lines: lines.length, sale, orderId: order?.id ?? null } });
         return { route, delivery: { id: d.id, visitId, status, incidentReason: incident, totalCents, lines: lines.length, formVersion: form.version } };
       });
       emit(ctx, out.route, 'delivery'); return out.delivery;
@@ -196,6 +225,53 @@ function createExecutionService({ store, clock, bus, files, config }) {
       emit(ctx, out.route, 'visit'); return out.visit;
     },
 
+    /** Auditoría de exhibición (módulo publicado): frentes observados por producto en la visita abierta. Se reemplaza al guardar de nuevo. */
+    async displayAudit(ctx, visitId, b = {}) {
+      const raw = Array.isArray(b.lines) ? b.lines : [];
+      if (!raw.length || raw.length > 100) throw unprocessable('Registra al menos un producto observado (máx. 100).', 'AUDIT_LINES');
+      const out = await store.tx(async (r) => {
+        const { visit, route } = await openVisit(r, ctx, visitId); const eff = await effective(r, ctx, route); core.requireModule(eff.payload, core.MODULE.EXHIBICION);
+        const lines = []; const seen = new Set();
+        for (const l of raw) {
+          const p = await r.products.get(ctx.companyId, l.productId); if (!p || p.status !== 'ACTIVE') throw unprocessable('Uno de los productos no existe o está inactivo.', 'PRODUCT_INVALID');
+          if (seen.has(p.id)) throw unprocessable(`El producto ${p.name} está repetido.`, 'LINE_DUPLICATE'); seen.add(p.id);
+          const fronts = Number(l.fronts); const exp = l.expectedFronts === undefined || l.expectedFronts === null || l.expectedFronts === '' ? null : Number(l.expectedFronts);
+          if (!Number.isInteger(fronts) || fronts < 0 || fronts > 1000 || (exp !== null && (!Number.isInteger(exp) || exp < 0 || exp > 1000))) throw unprocessable(`Los frentes de ${p.name} deben ser enteros ≥ 0.`, 'FRONTS_INVALID');
+          lines.push({ productId: p.id, fronts, expectedFronts: exp });
+        }
+        const id = uuid(); await r.displayAudits.replace({ id, companyId: ctx.companyId, visitId, clientId: visit.client_id, notes: str(b.notes, 'Las notas', { max: 300 }), createdBy: ctx.userId, createdAt: now() }, lines);
+        await audit(r, ctx, 'display_audit.recorded', { entity: 'display_audit', entityId: id, centerId: route.center_id, detail: { visitId, lines: lines.length, below: lines.filter((x) => x.expectedFronts !== null && x.fronts < x.expectedFronts).length } });
+        return { route, audit: { id, visitId, lines: lines.length, belowExpected: lines.filter((x) => x.expectedFronts !== null && x.fronts < x.expectedFronts).length } };
+      });
+      emit(ctx, out.route, 'display_audit'); return out.audit;
+    },
+
+    /** Comodato en la visita: verificar el activo del cliente (presente / faltante), entregar uno del centro o recogerlo. */
+    async assetAction(ctx, visitId, action, b = {}) {
+      if (!['verify', 'loan', 'return'].includes(action)) throw unprocessable('Acción de comodato no válida.', 'ASSET_ACTION');
+      const out = await store.tx(async (r) => {
+        const { visit, route } = await openVisit(r, ctx, visitId); const eff = await effective(r, ctx, route); core.requireModule(eff.payload, core.MODULE.COMODATO);
+        const asset = await r.assets.get(ctx.companyId, String(b.assetId ?? '')); if (!asset || asset.center_id !== route.center_id) throw notFound('Activo no encontrado.');
+        const t = now(); const note = str(b.note, 'La nota', { max: 200 });
+        if (action === 'verify') {
+          if (asset.status !== 'LOANED' || asset.client_id !== visit.client_id) throw conflict('Ese activo no está en comodato con este cliente.', 'ASSET_STATE');
+          const present = b.present !== false; if (!present && !note) throw unprocessable('Indica en la nota qué pasó con el activo faltante.', 'NOTE_REQUIRED');
+          await r.assets.addEvent({ companyId: ctx.companyId, assetId: asset.id, kind: present ? 'VERIFIED' : 'MISSING', clientId: visit.client_id, visitId, note, createdBy: ctx.userId, createdAt: t });
+        } else if (action === 'loan') {
+          if (asset.status !== 'IN_STOCK') throw conflict('El activo no está disponible en el almacén.', 'ASSET_STATE');
+          await r.assets.update(ctx.companyId, asset.id, { status: 'LOANED', client_id: visit.client_id });
+          await r.assets.addEvent({ companyId: ctx.companyId, assetId: asset.id, kind: 'LOAN', clientId: visit.client_id, visitId, note, createdBy: ctx.userId, createdAt: t });
+        } else {
+          if (asset.status !== 'LOANED' || asset.client_id !== visit.client_id) throw conflict('Ese activo no está en comodato con este cliente.', 'ASSET_STATE');
+          await r.assets.update(ctx.companyId, asset.id, { status: 'IN_STOCK', client_id: null });
+          await r.assets.addEvent({ companyId: ctx.companyId, assetId: asset.id, kind: 'RETURN', clientId: visit.client_id, visitId, note, createdBy: ctx.userId, createdAt: t });
+        }
+        await audit(r, ctx, `asset.${action}`, { entity: 'asset', entityId: asset.id, centerId: route.center_id, detail: { visitId, code: asset.code, present: action === 'verify' ? b.present !== false : undefined } });
+        return { route, asset: { id: asset.id, code: asset.code, action } };
+      });
+      emit(ctx, out.route, 'asset'); return out.asset;
+    },
+
     async skip(ctx, routeId, clientId, b = {}) {
       const reason = str(b.reason, 'El motivo', { required: true, max: 200 });
       const out = await store.tx(async (r) => {
@@ -218,7 +294,11 @@ function createExecutionService({ store, clock, bus, files, config }) {
         if (pending.length) { const names = (await r.routeRefs.clientsByIds(ctx.companyId, pending.map((p) => p.client_id))).map((c) => c.name); throw new HttpError(409, 'VISITS_PENDING', `Faltan ${pending.length} parada(s) por cerrar o marcar como no visitadas: ${names.join(', ')}.`, { pending: names }); }
         const t = now(); await r.routes.update(ctx.companyId, routeId, { status: 'COMPLETED', finished_at: t });
         await r.routeHistory.add({ routeId, from: 'IN_PROGRESS', to: 'COMPLETED', revision: route.revision, actorId: ctx.userId, at: t });
+        await core.returnLoad(r, route, { userId: ctx.userId, at: t });
         const summary = await this.routeSummary(r, routeId);
+        const cash = (await r.payments.byRoute(routeId)).reduce((a, x) => { if (x.method === 'CASH') a.cash += x.c; else a.other += x.c; return a; }, { cash: 0, other: 0 });
+        const st = await r.settlements.create({ id: uuid(), companyId: ctx.companyId, centerId: route.center_id, routeId, expectedCents: cash.cash, otherCents: cash.other, createdBy: ctx.userId, createdAt: t });
+        await audit(r, ctx, 'settlement.opened', { entity: 'settlement', entityId: st.id, centerId: route.center_id, detail: { routeId, expectedCents: cash.cash, otherCents: cash.other } });
         await audit(r, ctx, 'route.finished', { entity: 'route', entityId: routeId, centerId: route.center_id, detail: summary });
         await r.notifications.add({ companyId: ctx.companyId, centerId: route.center_id, category: 'Sistema', title: 'Ruta finalizada', detail: `${route.name}: ${summary.delivered} entregas, ${summary.partial} parciales, ${summary.failed} fallidas, ${summary.skipped} sin visitar.`, createdAt: t });
         return { route: { ...route, status: 'COMPLETED' }, summary };

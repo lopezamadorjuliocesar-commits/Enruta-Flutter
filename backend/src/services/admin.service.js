@@ -178,7 +178,10 @@ function createAdminService({ store, clock, auth, bus }) {
 
   const audits = {
     async list(ctx, q) {
-      const rows = await store.read((r) => r.audit.list(ctx.companyId, { from: q.from, to: q.to, actorId: q.actorId, action: q.action, limit: q.limit, offset: q.offset, centerIds: ctx.can('centers.all') ? undefined : ctx.accessibleCenterIds }));
+      // `from`/`to` pueden ser fechas (AAAA-MM-DD): el día final es inclusivo.
+      const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
+      const from = q.from && dateOnly.test(String(q.from)) ? `${q.from}T00:00:00.000Z` : q.from; const to = q.to && dateOnly.test(String(q.to)) ? `${q.to}T23:59:59.999Z` : q.to;
+      const rows = await store.read((r) => r.audit.list(ctx.companyId, { from, to, actorId: q.actorId, action: q.action, entity: q.entity, q: q.q, limit: q.limit, offset: q.offset, centerIds: ctx.can('centers.all') ? undefined : ctx.accessibleCenterIds }));
       return rows.map((e) => ({ id: e.id, at: e.created_at, actorId: e.actor_id, actor: e.actor_name, action: e.action, entity: e.entity, entityId: e.entity_id, centerId: e.center_id, detail: e.detail, ip: e.ip }));
     },
     async verify(ctx) { return store.read((r) => r.audit.verifyChain(ctx.companyId)); },

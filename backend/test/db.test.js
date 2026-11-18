@@ -28,7 +28,7 @@ test('las migraciones se aplican una sola vez y verifican el checksum', () => {
 
 test('el esquema real aplica limpio y activa las claves foráneas', () => {
   const conn = openConnection(':memory:'); const applied = migrate(conn);
-  assert.deepEqual(applied, ['001_core.sql', '002_catalog.sql', '003_fiscal.sql', '004_fleet.sql', '005_routes.sql', '006_settings.sql', '007_execution.sql', '008_tracking.sql']);
+  assert.deepEqual(applied, ['001_core.sql', '002_catalog.sql', '003_fiscal.sql', '004_fleet.sql', '005_routes.sql', '006_settings.sql', '007_execution.sql', '008_tracking.sql', '009_pricing.sql', '010_inventory.sql', '011_settlements.sql']);
   assert.equal(conn.pragma('foreign_keys', { simple: true }), 1);
   assert.throws(() => conn.prepare("INSERT INTO centers (id,company_id,name,created_at) VALUES ('c','no-existe','x','t')").run(), /FOREIGN KEY/);
 });

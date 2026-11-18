@@ -37,8 +37,8 @@ module.exports = function executionRepos(conn) {
         const existing = get('SELECT id FROM deliveries WHERE visit_id=?', d.visitId); const t = iso();
         if (existing) { run('DELETE FROM delivery_lines WHERE delivery_id=?', existing.id); run('DELETE FROM deliveries WHERE id=?', existing.id); }
         run(`INSERT INTO deliveries (id,company_id,visit_id,status,incident_reason,notes,form_version,form_data,total_cents,created_at,updated_at) VALUES (@id,@companyId,@visitId,@status,@incidentReason,@notes,@formVersion,@formData,@totalCents,@t,@t)`, { ...d, t });
-        const ins = conn.prepare('INSERT INTO delivery_lines (delivery_id,product_id,qty_planned,qty_delivered,unit_price_cents,discount_bp,reason) VALUES (?,?,?,?,?,?,?)');
-        for (const l of lines) ins.run(d.id, l.productId, l.qtyPlanned, l.qtyDelivered, l.unitPriceCents, l.discountBp, l.reason ?? null);
+        const ins = conn.prepare('INSERT INTO delivery_lines (delivery_id,product_id,qty_planned,qty_delivered,unit_price_cents,discount_bp,reason,list_price_cents,promo_cents,price_source) VALUES (?,?,?,?,?,?,?,?,?,?)');
+        for (const l of lines) ins.run(d.id, l.productId, l.qtyPlanned, l.qtyDelivered, l.unitPriceCents, l.discountBp, l.reason ?? null, l.listPriceCents ?? null, l.promoCents ?? 0, l.priceSource ?? null);
         return get('SELECT * FROM deliveries WHERE id=?', d.id);
       },
     },
