@@ -493,7 +493,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .file-drop.dragging { border-color: var(--blue, #1769aa); background: #eef6fc; }
 .sect-title { margin: 0; padding: 10px 0 4px; font-size: 12px; letter-spacing: .08em; color: #1d5fbf; text-transform: uppercase; }
 .modal-card.wide { width: min(720px, calc(100vw - 24px)); max-height: 92vh; overflow-y: auto; }
-.qr-card { display: grid; place-items: center; gap: 10px; padding: 18px; border: 1px dashed #cbd9e4; border-radius: 12px; background: #fff; text-align: center; }
+.qr-card { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; align-items: center; gap: 10px; padding: 18px; border: 1px dashed #cbd9e4; border-radius: 12px; background: #fff; text-align: center; min-width: 0; max-width: 100%; box-sizing: border-box; }
+.qr-card > * { min-width: 0; max-width: 100%; }
+.qr-card qrcode { display: block; width: auto; max-width: 100%; margin: 0 auto; }
+.qr-card qrcode > div { display: flex; justify-content: center; }
+.qr-card canvas, .qr-card img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.qr-card .link-url { max-width: 100%; overflow-wrap: anywhere; word-break: break-all; font-size: 11px; color: #5b6f85; user-select: all; }
 .qr-card.expired { opacity: .35; filter: grayscale(1); }
 .countdown { font: 700 22px 'Manrope', sans-serif; letter-spacing: .04em; color: #163b65; } .countdown.low { color: #d93025; }
 .status-reparacion { color: #a05a00; background: #fff3e0; } .status-robado { color: #b3261e; background: #fdecea; } .status-inactivo { color: #5b6b7b; background: #eef1f4; }
@@ -534,3 +539,4 @@ a.back-link, a.text-button { text-decoration: none; cursor: pointer; }
 .tower-table { width: 100%; border-collapse: collapse; font-size: 13px; } .tower-table th { text-align: left; color: #708197; font-size: 11px; font-weight: 600; padding: 6px 8px; } .tower-table td { padding: 9px 8px; border-top: 1px solid #e5eaf0; vertical-align: middle; }
 .sim-note { margin: 0 0 10px; padding: 9px 12px; border-radius: 8px; background: #fff8e6; border: 1px solid #ecd9a3; color: #7a5a00; font-size: 12px; }
 .panel-body-pad { padding: 4px 16px 16px; }
+.modal-card .qr-card { margin-bottom: 14px; }
