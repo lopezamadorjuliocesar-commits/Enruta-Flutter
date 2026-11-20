@@ -10,6 +10,7 @@ import '../../app/queries.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/dates.dart';
 import '../../core/widgets/common.dart';
+import '../../data/repositories/workday_repository.dart';
 import '../../domain/entities.dart';
 import '../../domain/enums.dart';
 import '../../domain/errors.dart';
@@ -48,11 +49,15 @@ class _LoadBodyState extends ConsumerState<_LoadBody> {
   @override
   void initState() {
     super.initState();
+    _repo = ref.read(workdayRepoProvider);
     if (widget.w.startKm != null) _km.text = '${widget.w.startKm}';
   }
 
+  late final WorkdayRepository _repo;
+
   @override
   void dispose() {
+    if (_debounce?.isActive ?? false) _repo.saveStartKm(widget.w.id, int.tryParse(_km.text));
     _debounce?.cancel();
     _km.dispose();
     super.dispose();
@@ -60,7 +65,7 @@ class _LoadBodyState extends ConsumerState<_LoadBody> {
 
   void _saveKm(String v) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () => ref.read(workdayRepoProvider).saveStartKm(widget.w.id, int.tryParse(v)));
+    _debounce = Timer(const Duration(milliseconds: 500), () => _repo.saveStartKm(widget.w.id, int.tryParse(v)));
   }
 
   Future<void> _scan() async {

@@ -1,4 +1,4 @@
-package com.example.enruta_transportistas
+package com.enruta.movil
 
 import io.flutter.embedding.android.FlutterActivity
 

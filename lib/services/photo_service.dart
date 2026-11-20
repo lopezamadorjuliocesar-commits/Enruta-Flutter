@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -17,6 +18,10 @@ class PhotoException implements Exception {
 /// Devuelve la ruta relativa en [FileStore] o null si el usuario canceló.
 abstract interface class PhotoService {
   Future<String?> capture({bool fromGallery = false});
+
+  /// Android puede destruir la actividad mientras la cámara está abierta; al
+  /// reiniciar, recupera la foto pendiente (ruta relativa) si existe.
+  Future<String?> recoverLost();
 }
 
 class CameraPhotoService implements PhotoService {
@@ -41,6 +46,19 @@ class CameraPhotoService implements PhotoService {
         throw const PhotoException(PhotoError.permissionDenied, 'Sin permiso de cámara. Actívalo en Ajustes para tomar fotografías.');
       }
       throw PhotoException(PhotoError.unavailable, 'No se pudo usar la cámara (${e.code}).');
+    }
+  }
+
+  @override
+  Future<String?> recoverLost() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return null;
+    try {
+      final r = await _picker.retrieveLostData();
+      final f = r.file ?? r.files?.firstOrNull;
+      if (r.isEmpty || f == null) return null;
+      return await _files.importFile(f.path);
+    } on PlatformException {
+      return null;
     }
   }
 }

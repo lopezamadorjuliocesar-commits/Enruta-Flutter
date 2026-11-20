@@ -1,0 +1,6 @@
+# Copia este archivo como android/key.properties (está en .gitignore) y
+# completa los datos de tu keystore de publicación. Nunca lo subas al repositorio.
+storePassword=CAMBIAR
+keyPassword=CAMBIAR
+keyAlias=enruta
+storeFile=/ruta/absoluta/a/enruta-release.jks

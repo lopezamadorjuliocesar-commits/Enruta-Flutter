@@ -10,6 +10,9 @@ import '../../services/photo_service.dart';
 import '../theme/app_colors.dart';
 import 'common.dart';
 
+/// Clave del borrador que abrió la cámara (para recuperar fotos tras reinicio).
+const pendingCameraDraftKey = 'camera.pending_draft';
+
 /// Fotografías reales de un formulario (borrador persistente): vista previa,
 /// eliminación con confirmación y recaptura. Las fotos sobreviven a reinicios.
 class PhotoEvidencePicker extends ConsumerStatefulWidget {
@@ -35,7 +38,9 @@ class _PhotoEvidencePickerState extends ConsumerState<PhotoEvidencePicker> {
       _error = null;
       _permissionDenied = false;
     });
+    final db = ref.read(dbProvider);
     try {
+      await db.setSetting(pendingCameraDraftKey, widget.draftKey);
       final rel = await ref.read(photoServiceProvider).capture(fromGallery: gallery);
       if (rel != null) await ref.read(evidenceRepoProvider).addDraftFile(widget.draftKey, EvidenceKind.photo, rel);
     } on PhotoException catch (e) {
@@ -46,6 +51,7 @@ class _PhotoEvidencePickerState extends ConsumerState<PhotoEvidencePicker> {
     } catch (_) {
       setState(() => _error = 'No se pudo guardar la fotografía.');
     } finally {
+      await db.setSetting(pendingCameraDraftKey, null);
       if (mounted) setState(() => _busy = false);
     }
   }

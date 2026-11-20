@@ -44,14 +44,17 @@ class FakePermissions implements PermissionService {
 }
 
 class FakePhoto implements PhotoService {
-  FakePhoto(this.files, {this.deny = false});
+  FakePhoto(this.files, {this.deny = false, this.lost = false});
   final FileStore files;
-  final bool deny;
+  final bool deny, lost;
   @override
   Future<String?> capture({bool fromGallery = false}) async {
     if (deny) throw const PhotoException(PhotoError.permissionDenied, 'Sin permiso de cámara. Actívalo en Ajustes para tomar fotografías.');
     return files.writeBytes(fakeJpeg, ext: '.jpg');
   }
+
+  @override
+  Future<String?> recoverLost() async => lost ? files.writeBytes(fakeJpeg, ext: '.jpg') : null;
 }
 
 class Harness {
@@ -71,7 +74,9 @@ Future<Harness> pumpApp(
   double textScale = 1,
   bool online = false,
   bool denyCamera = false,
+  bool lostPhoto = false,
   Future<AppDatabase> Function()? opener,
+  void Function(String dbPath)? pathSetter,
 }) async {
   sqfliteFfiInit();
   tester.view.physicalSize = size * 2;
@@ -80,6 +85,7 @@ Future<Harness> pumpApp(
   addTearDown(tester.view.reset);
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
   final dir = Directory.systemTemp.createTempSync('enruta_ui_');
+  pathSetter?.call('${dir.path}/enruta.db');
   final perms = FakePermissions();
   final container = ProviderContainer(overrides: [
     databaseOpenerProvider.overrideWithValue(
@@ -89,7 +95,7 @@ Future<Harness> pumpApp(
     networkOnlineProvider.overrideWith((ref) => Stream.value(online)),
     locationServiceProvider.overrideWithValue(FakeLocation()),
     permissionServiceProvider.overrideWithValue(perms),
-    photoServiceProvider.overrideWith((ref) => FakePhoto(ref.watch(fileStoreProvider), deny: denyCamera)),
+    photoServiceFactoryProvider.overrideWithValue((files) => FakePhoto(files, deny: denyCamera, lost: lostPhoto)),
   ]);
   await tester.pumpWidget(UncontrolledProviderScope(container: container, child: const EnRutaApp()));
   await waitFor(tester, () => container.read(bootstrapProvider).done || container.read(bootstrapProvider).error != null);

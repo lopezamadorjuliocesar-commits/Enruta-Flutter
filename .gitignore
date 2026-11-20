@@ -2,3 +2,7 @@
 .flutter-plugins
 .flutter-plugins-dependencies
 build/
+coverage/
+# Configuración local con secretos (usar config/env.example.json como base)
+config/env.json
+*.env

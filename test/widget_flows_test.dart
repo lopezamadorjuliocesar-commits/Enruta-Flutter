@@ -102,6 +102,18 @@ void main() {
     expect(h.location, '/welcome');
   });
 
+  testWidgets('Foto recuperada si Android cerró la app con la cámara abierta', (tester) async {
+    late String path;
+    final h = await pumpApp(tester, lostPhoto: true, opener: () async {
+      final db = await AppDatabase.open(factory: databaseFactoryFfiNoIsolate, path: path);
+      await db.setSetting('camera.pending_draft', 'delivery:parada-x');
+      return db;
+    }, pathSetter: (p) => path = p);
+    final rows = await drive(tester, () => h.container.read(dbProvider).db.query('evidence_files', where: 'owner_id = ?', whereArgs: ['delivery:parada-x']));
+    expect(rows, hasLength(1));
+    expect(await drive(tester, () => h.container.read(dbProvider).getSetting('camera.pending_draft')), isNull);
+  });
+
   group('Pantalla pequeña (320×568) con texto al 200 %', () {
     const small = Size(320, 568);
 

@@ -103,8 +103,12 @@ class _ClosingFormState extends ConsumerState<_ClosingForm> {
         'counted': _counted,
       }));
 
+  bool _submitted = false;
+
   @override
   void dispose() {
+    // Guarda el último cambio pendiente al salir (no se pierde lo capturado).
+    if ((_save?.isActive ?? false) && !_submitted) _persist();
     _save?.cancel();
     for (final c in [_declared, _just, _exc, _km]) {
       c.dispose();
@@ -271,6 +275,7 @@ class _ClosingFormState extends ConsumerState<_ClosingForm> {
                     exceptionalReason: _exceptional ? _exc.text : '',
                     actorId: ref.read(sessionProvider).user!.id,
                   );
+              _submitted = true;
               _save?.cancel();
               await _db.setSetting(_draftKey, null);
               ref.read(trackingProvider.notifier).stop();

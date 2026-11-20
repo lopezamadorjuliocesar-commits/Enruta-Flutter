@@ -117,8 +117,16 @@ class BootstrapNotifier extends Notifier<BootState> {
       await ref.read(sessionProvider.notifier).restore(db);
 
       state = state.copyWith(step: 4, label: 'Revisando archivos y cola de sincronización…');
-      await EvidenceRepository(db, files).cleanup();
+      final evidence = EvidenceRepository(db, files);
+      await evidence.cleanup();
       await OutboxRepository(db).recoverInterrupted();
+      final pendingDraft = await db.getSetting('camera.pending_draft');
+      if (pendingDraft != null) {
+        // La app se reinició con la cámara abierta: se recupera la foto si Android la conservó.
+        final rel = await ref.read(photoServiceFactoryProvider)(files).recoverLost();
+        if (rel != null) await evidence.addDraftFile(pendingDraft, EvidenceKind.photo, rel);
+        await db.setSetting('camera.pending_draft', null);
+      }
 
       state = state.copyWith(step: 5, label: 'Listo', done: true, onboardingDone: onboarding);
     } catch (e) {
@@ -174,7 +182,9 @@ final fieldRepoProvider = Provider((ref) => FieldRepository(ref.watch(dbProvider
 final outboxRepoProvider = Provider((ref) => OutboxRepository(ref.watch(dbProvider)));
 final demoSeederProvider = Provider((ref) => DemoSeeder(ref.watch(dbProvider), ref.watch(pinHasherProvider)));
 final deviceServiceProvider = Provider((ref) => DeviceService(ref.watch(dbProvider)));
-final photoServiceProvider = Provider<PhotoService>((ref) => CameraPhotoService(ref.watch(fileStoreProvider)));
+/// Fábrica sustituible (pruebas) del servicio de cámara.
+final photoServiceFactoryProvider = Provider<PhotoService Function(FileStore)>((_) => CameraPhotoService.new);
+final photoServiceProvider = Provider<PhotoService>((ref) => ref.watch(photoServiceFactoryProvider)(ref.watch(fileStoreProvider)));
 
 // ───────── Sesión ─────────
 

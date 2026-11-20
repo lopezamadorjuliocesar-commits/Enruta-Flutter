@@ -42,6 +42,7 @@ class _CartState extends ConsumerState<CartScreen> {
 
   @override
   void dispose() {
+    if (_save?.isActive ?? false) _repo.setCartNotes(_userId, _notes.text);
     _save?.cancel();
     _notes.dispose();
     super.dispose();
