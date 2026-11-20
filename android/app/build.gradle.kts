@@ -15,7 +15,8 @@ val hasReleaseKey = keystoreProperties.getProperty("storeFile") != null
 
 android {
     namespace = "com.enruta.movil"
-    compileSdk = flutter.compileSdkVersion
+    // permission_handler_android 14.x exige compilar contra API 37; targetSdk sigue el de Flutter.
+    compileSdk = maxOf(flutter.compileSdkVersion, 37)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

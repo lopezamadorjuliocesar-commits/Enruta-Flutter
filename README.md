@@ -26,7 +26,7 @@ Documentación: [arquitectura y guía de integración](docs/ARQUITECTURA.md) ·
 ## Requisitos
 
 - Flutter **3.50.1** (stable) / Dart 3.14 — verificado con esa versión.
-- Android: SDK 36 (compile/target), mínimo API 24, JDK 17+.
+- Android: compileSdk 37 (platform `android-37`), targetSdk 36, mínimo API 24, JDK 17+.
 - iOS: macOS con Xcode, iOS 15.0 o superior.
 
 ## Ejecutar

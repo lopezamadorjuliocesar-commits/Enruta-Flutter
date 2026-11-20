@@ -169,7 +169,10 @@ Tipos emitidos: `access_request.create`, `user.profile`, `customer.contact`,
 
 ## Plataformas
 
-- **Android:** `com.enruta.movil`, minSdk 24 (Flutter), compile/target 36.
+- **Android:** `com.enruta.movil`, minSdk 24, targetSdk 36 (Flutter), compileSdk 37
+  (exigido por `permission_handler_android` 14). AGP 9.3.1, Kotlin 2.4.20 y Gradle
+  9.5.0, alineados con la plantilla de Flutter 3.50.1 (el proyecto original usaba
+  AGP 9.1.0, por debajo del mínimo 9.1.1 de Flutter).
   Permisos: Internet, estado de red, cámara, ubicación precisa/aproximada (solo
   primer plano). Visibilidad de paquetes para mapas, cámara y compartir PDF.
   Firma de release mediante `android/key.properties` (ver ejemplo).
