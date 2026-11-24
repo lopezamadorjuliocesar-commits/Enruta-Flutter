@@ -1,6 +1,7 @@
 import 'dart:ui';
 
-/// Tokens del sistema de diseño EnRuta.
+/// Paleta de EnRuta. Conductor: azul marino + ámbar. Negocio: esmeralda.
+/// Todos los pares texto/fondo usados cumplen contraste AA (ver test/design_system_test.dart).
 abstract final class AppColors {
   // Conductor
   static const navy = Color(0xFF0B2F52);
@@ -13,15 +14,17 @@ abstract final class AppColors {
   static const emeraldDeep = Color(0xFF12523B);
   static const emeraldSoft = Color(0xFFE0F2EA);
   // Superficies
-  static const background = Color(0xFFF2F5F7);
+  static const background = Color(0xFFF4F6F8);
   static const card = Color(0xFFFFFFFF);
-  static const border = Color(0xFFDCE4EA);
-  static const soft = Color(0xFFE1ECF5);
-  // Texto (contraste AA sobre fondos claros)
+  static const border = Color(0xFFE0E7ED);
+  static const soft = Color(0xFFE6EEF5);
+  static const disabledBg = Color(0xFFDDE3E8);
+  // Texto
   static const text = Color(0xFF0F1E2B);
   static const textSecondary = Color(0xFF51677B);
   static const textSubtitle = Color(0xFF3F5466);
-  static const textOnDark = Color(0xFFB9D3E6);
+  static const textOnDark = Color(0xFFBBD4E7);
+  static const textOnEmerald = Color(0xFFD4EFE2);
   // Semántica
   static const successBg = Color(0xFFDDF0E8);
   static const success = Color(0xFF17633F);
@@ -29,6 +32,6 @@ abstract final class AppColors {
   static const warning = Color(0xFF6E5100);
   static const errorBg = Color(0xFFFAE3DF);
   static const error = Color(0xFFA32C1E);
-  static const infoBg = Color(0xFFE1ECF5);
+  static const infoBg = Color(0xFFE6EEF5);
   static const info = Color(0xFF14497A);
 }

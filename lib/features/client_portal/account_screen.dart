@@ -6,6 +6,7 @@ import '../../app/providers.dart';
 import '../../app/queries.dart';
 import '../../core/config/app_config.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/tokens.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
 import '../../core/utils/validators.dart';
@@ -44,84 +45,71 @@ class _ClientAccountState extends ConsumerState<ClientAccountScreen> {
       subtitle: c.name,
       back: false,
       children: [
-        StateCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              CircleAvatar(radius: 24, backgroundColor: AppColors.emeraldSoft, child: Text(u.fullName.characters.first, style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.emerald, fontSize: 20))),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(u.fullName, style: Theme.of(context).textTheme.titleMedium),
-                  Text('@${u.username} · ${u.phone} · ${u.email}', style: const TextStyle(fontSize: 12.5, color: AppColors.textSubtitle)),
-                ]),
-              ),
-              IconButton(tooltip: 'Editar mis datos', onPressed: () => _editProfile(u), icon: const Icon(Icons.edit)),
-            ]),
-            if (u.isDemo) const Padding(padding: EdgeInsets.only(top: 6), child: StatusBadge('Cuenta de demostración', tone: Tone.warning, icon: Icons.science)),
-            const Divider(height: 20),
-            Row(children: [
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(c.name, style: const TextStyle(fontWeight: FontWeight.w700)),
-                  Text('Contacto: ${c.contactName} · ${c.phone}', style: const TextStyle(fontSize: 12.5, color: AppColors.textSubtitle)),
-                  Text('Distribuidor: ${s.company?.name ?? ''}', style: const TextStyle(fontSize: 12.5, color: AppColors.textSubtitle)),
-                ]),
-              ),
-              IconButton(tooltip: 'Editar contacto del negocio', onPressed: () => _editBusiness(c), icon: const Icon(Icons.storefront)),
-            ]),
-          ]),
-        ),
+        ListGroup(children: [
+          ListRow(
+            leading: CircleAvatar(radius: 22, backgroundColor: AppColors.emeraldSoft, child: Text(u.fullName.characters.first, style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.emerald, fontSize: 18))),
+            title: u.fullName,
+            subtitle: '@${u.username} · ${u.phone}\n${u.email}',
+            meta: u.isDemo ? const StatusBadge('Cuenta de demostración', tone: Tone.warning, icon: Icons.science) : null,
+            trailing: const Icon(Icons.edit_outlined, color: AppColors.emerald),
+            onTap: () => _editProfile(u),
+            chevron: false,
+          ),
+          ListRow(
+            leading: const Icon(Icons.storefront_outlined, color: AppColors.emerald),
+            title: c.name,
+            subtitle: 'Contacto: ${c.contactName} · ${c.phone}\nDistribuidor: ${s.company?.name ?? ''}',
+            trailing: const Icon(Icons.edit_outlined, color: AppColors.emerald),
+            onTap: () => _editBusiness(c),
+            chevron: false,
+          ),
+        ]),
         KpiRow([
-          KpiCard('Saldo pendiente', money(balance), valueColor: balance > 0 ? AppColors.error : AppColors.success, icon: Icons.account_balance_wallet),
-          KpiCard(c.hasCredit ? 'Crédito disponible' : 'Condición',
-              c.hasCredit ? money(usage == null ? 0 : availableCredit(limitCents: c.creditLimitCents, balanceCents: usage.balance, openOrdersCents: usage.openOrders)) : 'Contado',
-              sub: c.hasCredit ? 'Límite ${money(c.creditLimitCents)} · ${c.paymentTermsDays} días' : 'Pago al recibir', icon: Icons.credit_score),
+          KpiCard('Saldo pendiente', money(balance), valueColor: balance > 0 ? AppColors.error : AppColors.success, icon: Icons.account_balance_wallet_outlined),
+          KpiCard(
+            c.hasCredit ? 'Crédito disponible' : 'Condición',
+            c.hasCredit ? money(usage == null ? 0 : availableCredit(limitCents: c.creditLimitCents, balanceCents: usage.balance, openOrdersCents: usage.openOrders)) : 'Contado',
+            sub: c.hasCredit ? 'Límite ${money(c.creditLimitCents)} · ${c.paymentTermsDays} días' : 'Pago al recibir',
+            icon: Icons.credit_score_outlined,
+          ),
         ]),
         SectionTitle('Documentos', trailing: TextButton(onPressed: () => setState(() => _showPaid = !_showPaid), child: Text(_showPaid ? 'Solo pendientes' : 'Ver todos'))),
-        if (shownDocs.isEmpty) const Text('No tienes documentos pendientes.', style: TextStyle(color: AppColors.textSubtitle)),
-        for (final d in shownDocs)
-          StateCard(
-            accent: d.overdue(now) ? AppColors.error : (d.balanceCents == 0 ? AppColors.success : null),
-            onTap: d.deliveryId == null || d.kind != DocumentKind.delivery ? null : () => context.push('/comprobante/entrega/${d.deliveryId}'),
-            child: Row(children: [
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('${d.folio} · ${d.kind.label}', style: const TextStyle(fontWeight: FontWeight.w600)),
-                  Text(d.kind == DocumentKind.credit ? 'A tu favor' : 'Importe ${money(d.amountCents)} · vence ${fullDate(d.dueAt)}',
-                      style: TextStyle(fontSize: 12.5, color: d.overdue(now) ? AppColors.error : AppColors.textSecondary)),
-                ]),
+        if (shownDocs.isEmpty)
+          const EmptyState('Cuando tengas facturas o remisiones, aparecerán aquí.', title: 'Sin documentos pendientes', icon: Icons.task_alt)
+        else
+          ListGroup(children: [
+            for (final d in shownDocs)
+              ListRow(
+                leading: Icon(d.balanceCents == 0 ? Icons.check_circle : (d.overdue(now) ? Icons.warning_amber_rounded : Icons.description_outlined), color: d.balanceCents == 0 ? AppColors.success : (d.overdue(now) ? AppColors.error : AppColors.textSecondary)),
+                title: '${d.folio} · ${d.kind.label}',
+                subtitle: d.kind == DocumentKind.credit ? 'A tu favor' : 'Importe ${money(d.amountCents)} · vence ${fullDate(d.dueAt)}${d.overdue(now) ? ' · vencido' : ''}',
+                trailing: d.balanceCents == 0
+                    ? const StatusBadge('Pagado', tone: Tone.success)
+                    : Text(money(d.balanceCents), style: const TextStyle(fontWeight: FontWeight.w800, fontFeatures: AppText.tabular)),
+                onTap: d.deliveryId == null || d.kind != DocumentKind.delivery ? null : () => context.push('/comprobante/entrega/${d.deliveryId}'),
+                chevron: false,
               ),
-              if (d.balanceCents == 0)
-                const StatusBadge('Pagado', tone: Tone.success)
-              else
-                Text(money(d.balanceCents), style: const TextStyle(fontWeight: FontWeight.w800)),
-            ]),
-          ),
-        SectionTitle('Pagos registrados (${payments.length})'),
-        if (payments.isEmpty) const Text('Sin pagos registrados.', style: TextStyle(color: AppColors.textSubtitle)),
-        for (final p in payments.take(20))
-          StateCard(
-            onTap: () => context.push('/comprobante/cobro/${p.id}'),
-            child: Row(children: [
-              const Icon(Icons.receipt, color: AppColors.emerald),
-              const SizedBox(width: 10),
-              Expanded(child: Text('${p.folio} · ${p.method.label} · ${fullDate(p.createdAt)}')),
-              Text(money(p.amountCents), style: const TextStyle(fontWeight: FontWeight.w700)),
-            ]),
-          ),
-        const SectionTitle('Seguridad y ayuda'),
-        StateCard(
-          padding: EdgeInsets.zero,
-          child: Column(children: [
-            ListTile(leading: const Icon(Icons.report_problem_outlined), title: const Text('Mis reportes de problemas'), trailing: const Icon(Icons.chevron_right), onTap: () => context.push('/negocio/incidencias')),
-            const Divider(),
-            ListTile(leading: const Icon(Icons.pin), title: const Text('Cambiar PIN'), trailing: const Icon(Icons.chevron_right), onTap: () => showChangePinSheet(context, ref)),
-            if (AppConfig.devToolsEnabled) ...[
-              const Divider(),
-              ListTile(leading: const Icon(Icons.build), title: const Text('Herramientas de desarrollo'), trailing: const Icon(Icons.chevron_right), onTap: () => context.push('/dev')),
-            ],
           ]),
-        ),
+        if (payments.isNotEmpty) ...[
+          SectionTitle('Pagos registrados (${payments.length})'),
+          ListGroup(children: [
+            for (final p in payments.take(20))
+              ListRow(
+                leading: const Icon(Icons.receipt_outlined, color: AppColors.emerald),
+                title: '${p.folio} · ${p.method.label}',
+                subtitle: fullDate(p.createdAt),
+                trailing: Text(money(p.amountCents), style: const TextStyle(fontWeight: FontWeight.w700, fontFeatures: AppText.tabular)),
+                onTap: () => context.push('/comprobante/cobro/${p.id}'),
+                chevron: false,
+              ),
+          ]),
+        ],
+        SectionTitle('Seguridad y ayuda'),
+        ListGroup(children: [
+          ListRow(leading: const Icon(Icons.report_problem_outlined, color: AppColors.emerald), title: 'Mis reportes de problemas', onTap: () => context.push('/negocio/incidencias')),
+          ListRow(leading: const Icon(Icons.pin_outlined, color: AppColors.emerald), title: 'Cambiar PIN', onTap: () => showChangePinSheet(context, ref)),
+          if (AppConfig.devToolsEnabled) ListRow(leading: const Icon(Icons.build_outlined, color: AppColors.emerald), title: 'Herramientas de desarrollo', onTap: () => context.push('/dev')),
+        ]),
       ],
       footer: PrimaryButton('Cerrar sesión', icon: Icons.logout, outlined: true, danger: true, onPressed: () async {
         if (await confirmDialog(context, title: 'Cerrar sesión', message: 'Tu carrito y tus pedidos quedan guardados.', confirm: 'Cerrar sesión')) {

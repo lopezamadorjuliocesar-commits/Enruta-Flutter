@@ -5,97 +5,122 @@ import 'package:material_ui/material_ui.dart';
 import '../../app/providers.dart';
 import '../../app/queries.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/tokens.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
 import '../../core/widgets/common.dart';
 import '../../domain/entities.dart';
-import '../orders/order_detail_screen.dart';
+import '../../domain/enums.dart';
+import '../../domain/rules/credit_rules.dart';
+import '../orders/order_widgets.dart';
 
-/// M-06 · Mis pedidos y entregas del negocio autenticado.
-class ClientDeliveriesScreen extends ConsumerStatefulWidget {
+/// Inicio del negocio: estado de su pedido activo y qué sigue; debajo, el
+/// historial. El servicio principal (hacer un pedido) está siempre en el pie.
+class ClientDeliveriesScreen extends ConsumerWidget {
   const ClientDeliveriesScreen({super.key});
-  @override
-  ConsumerState<ClientDeliveriesScreen> createState() => _ClientDeliveriesState();
-}
-
-class _ClientDeliveriesState extends ConsumerState<ClientDeliveriesScreen> {
-  bool _active = true;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(sessionProvider);
     final customer = s.customer;
     if (customer == null) return const SizedBox.shrink();
     final orders = ref.watch(customerOrdersProvider(customer.id));
-    final balance = ref.watch(balanceProvider(customer.id)).value;
+    final usage = ref.watch(creditUsageProvider(customer.id)).value;
+    final list = orders.value;
+    final active = list?.where((o) => o.status.isActive).toList() ?? const <Order>[];
+    final past = list?.where((o) => !o.status.isActive).toList() ?? const <Order>[];
+    // El pedido más avanzado (en camino > programado > recibido) es el destacado.
+    final featured = ([...active]..sort((a, b) => orderStageIndex(b.status).compareTo(orderStageIndex(a.status)))).firstOrNull;
+    final others = active.where((o) => o.id != featured?.id).toList();
+    final firstName = s.user!.fullName.split(' ').first;
+
+    Widget hero() {
+      if (list == null) return const SizedBox(height: 96);
+      if (featured == null) {
+        return HeroPanel(
+          stateKey: 'empty',
+          icon: Icons.storefront,
+          label: 'Sin pedidos en curso',
+          title: 'Haz tu primer pedido',
+          subtitle: 'Elige productos del catálogo y confirma. Podrás seguir su estado aquí.',
+          onTap: () => context.go('/negocio/pedir'),
+        );
+      }
+      return HeroPanel(
+        stateKey: '${featured.id}|${featured.status.name}',
+        icon: orderIcon(featured.status),
+        label: 'Pedido ${featured.folio}',
+        title: featured.status.label,
+        subtitle: orderStatusMessage(featured.status),
+        onTap: () => context.push('/pedido/${featured.id}'),
+        meta: Text('${featured.units} unidades · ${money(featured.totalCents)}', style: const TextStyle(fontWeight: FontWeight.w700, fontFeatures: AppText.tabular)),
+        action: featured.status.canCancel
+            ? Align(alignment: Alignment.centerLeft, child: TextButton(onPressed: () => context.push('/pedido/${featured.id}'), child: const Text('Ver o cancelar')))
+            : null,
+      );
+    }
+
+    final balance = usage?.balance;
+    final credit = usage == null || !customer.hasCredit ? null : availableCredit(limitCents: customer.creditLimitCents, balanceCents: usage.balance, openOrdersCents: usage.openOrders);
     return EnScaffold(
-      title: 'Mis pedidos',
+      title: 'Hola, $firstName',
       subtitle: customer.name,
       back: false,
       actions: [IconButton(tooltip: 'Mis reportes', onPressed: () => context.push('/negocio/incidencias'), icon: const Icon(Icons.report_problem_outlined))],
-      body: AsyncBody(
-        value: orders,
-        onRetry: () => ref.invalidate(customerOrdersProvider(customer.id)),
-        builder: (list) {
-          final active = list.where((o) => o.status.isActive).toList();
-          final past = list.where((o) => !o.status.isActive).toList();
-          final shown = _active ? active : past;
-          return ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 24), children: EnScaffold.spaced([
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: AppColors.emerald, borderRadius: BorderRadius.circular(14)),
-              child: Wrap(alignment: WrapAlignment.spaceBetween, crossAxisAlignment: WrapCrossAlignment.end, spacing: 16, runSpacing: 8, children: [
-                Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                  Text('Hola, ${s.user!.fullName.split(' ').first}', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800)),
-                  Text('${active.length} pedido(s) en curso', style: const TextStyle(color: Color(0xFFCDEBDD))),
-                ]),
-                Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                  const Text('Saldo', style: TextStyle(color: Color(0xFFCDEBDD), fontSize: 12)),
-                  Text(balance == null ? '…' : money(balance), style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800)),
-                ]),
+      header: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (featured != null) ...[
+          StageStepper(steps: orderStages, current: orderStageIndex(featured.status), onDark: true, failed: featured.status == OrderStatus.failed),
+          const SizedBox(height: Sp.lg),
+        ],
+        hero(),
+        const SizedBox(height: Sp.md),
+        Semantics(
+          label: 'Saldo ${balance == null ? '' : money(balance)}${credit == null ? '' : ', crédito disponible ${money(credit)}'}',
+          child: ExcludeSemantics(
+            child: Text.rich(
+              TextSpan(children: [
+                const TextSpan(text: 'Saldo ', style: TextStyle(fontWeight: FontWeight.w400)),
+                TextSpan(text: balance == null ? '…' : money(balance), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+                if (credit != null) ...[
+                  const TextSpan(text: '  ·  Crédito disponible '),
+                  TextSpan(text: money(credit), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+                ],
               ]),
+              style: const TextStyle(color: AppColors.textOnEmerald, fontSize: 13.5, fontFeatures: AppText.tabular),
             ),
-            ChoiceBar<bool>(
-              options: [(true, 'En curso (${active.length})', null), (false, 'Anteriores (${past.length})', null)],
-              selected: _active,
-              onSelected: (v) => setState(() => _active = v),
-            ),
-            if (shown.isEmpty)
-              EmptyState(_active ? 'No tienes pedidos en curso.' : 'Aún no hay pedidos anteriores.',
-                  icon: Icons.receipt_long,
-                  action: _active ? ElevatedButton(onPressed: () => context.go('/negocio/pedir'), child: const Text('Hacer un pedido')) : null),
-            for (final o in shown) _OrderCard(o),
-          ]));
-        },
-      ),
+          ),
+        ),
+      ]),
+      children: list == null
+          ? [AsyncPlaceholder(orders, onRetry: () => ref.invalidate(customerOrdersProvider(customer.id)))]
+          : [
+              if (others.isNotEmpty) ...[
+                SectionTitle('Otros pedidos en curso (${others.length})'),
+                ListGroup(children: [for (final o in others) _OrderRow(o)]),
+              ],
+              SectionTitle('Historial'),
+              if (past.isEmpty)
+                const EmptyState('Aquí aparecerán tus pedidos entregados.', icon: Icons.receipt_long_outlined)
+              else
+                ListGroup(children: [for (final o in past) _OrderRow(o)]),
+            ],
       footer: PrimaryButton('Hacer un pedido', icon: Icons.add_shopping_cart, onPressed: () => context.go('/negocio/pedir')),
     );
   }
 }
 
-class _OrderCard extends StatelessWidget {
-  const _OrderCard(this.o);
+class _OrderRow extends StatelessWidget {
+  const _OrderRow(this.o);
   final Order o;
+
   @override
-  Widget build(BuildContext context) {
-    final last = o.events.isEmpty ? null : o.events.last;
-    return StateCard(
-      accent: orderTone(o.status).fg,
-      onTap: () => context.push('/pedido/${o.id}'),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Expanded(child: Text('Pedido ${o.folio}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15))),
-          StatusBadge(o.status.label, tone: orderTone(o.status)),
-        ]),
-        const SizedBox(height: 4),
-        Text('${dateTime(o.createdAt)} · ${o.units} unidades', style: const TextStyle(color: AppColors.textSubtitle, fontSize: 12.5)),
-        if (last != null) Text(last.note, style: const TextStyle(fontSize: 12.5)),
-        const SizedBox(height: 4),
-        Row(children: [
-          Expanded(child: Text(o.items.map((i) => i.product.name).join(', '), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary))),
-          Text(money(o.totalCents), style: const TextStyle(fontWeight: FontWeight.w800)),
-        ]),
-      ]),
-    );
-  }
+  Widget build(BuildContext context) => ListRow(
+        leading: Icon(orderIcon(o.status), color: orderTone(o.status).fg),
+        title: 'Pedido ${o.folio}',
+        subtitle: '${fullDate(o.createdAt)} · ${orderSummaryLine(o)}',
+        meta: StatusBadge(o.status.label, tone: orderTone(o.status), icon: orderIcon(o.status)),
+        trailing: Text(money(o.totalCents), style: const TextStyle(fontWeight: FontWeight.w800, fontFeatures: AppText.tabular)),
+        onTap: () => context.push('/pedido/${o.id}'),
+        chevron: true,
+      );
 }

@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../app/providers.dart';
 import '../../core/config/app_config.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/tokens.dart';
 import '../../core/widgets/common.dart';
 import '../../core/widgets/numeric_pad.dart';
 import '../../data/repositories/auth_repository.dart';
@@ -26,6 +27,7 @@ class _LoginState extends ConsumerState<LoginScreen> {
   String _pin = '';
   String? _error;
   bool _busy = false;
+  int _shake = 0;
 
   @override
   void initState() {
@@ -69,10 +71,18 @@ class _LoginState extends ConsumerState<LoginScreen> {
       } else if (e.code == 'auth.pending') {
         context.go('/pending?user=${e.userId}');
       } else {
-        setState(() => _error = e.message);
+        setState(() {
+          _error = e.message;
+          _shake++;
+        });
       }
     } catch (e) {
-      if (mounted) setState(() => _error = friendlyError(e));
+      if (mounted) {
+        setState(() {
+          _error = friendlyError(e);
+          _shake++;
+        });
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -97,15 +107,15 @@ class _LoginState extends ConsumerState<LoginScreen> {
       body: Column(children: [
         Container(
           width: double.infinity,
-          color: AppColors.navy,
-          padding: EdgeInsets.fromLTRB(20, top + 20, 20, 20),
+          decoration: const BoxDecoration(color: AppColors.navy, borderRadius: BorderRadius.vertical(bottom: Radius.circular(Rd.xl))),
+          padding: EdgeInsets.fromLTRB(Sp.xl, top + Sp.xl, Sp.xl, Sp.xl),
           child: const Row(children: [
-            TenantBadge('', size: 52),
-            SizedBox(width: 14),
+            TenantBadge('', size: 56),
+            SizedBox(width: Sp.lg),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('EnRuta', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
-                Text('Inicia sesión como conductor o negocio', style: TextStyle(color: AppColors.textOnDark)),
+                Text('EnRuta', style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w900)),
+                Text('Entra a tu cuenta de conductor o negocio', style: TextStyle(color: AppColors.textOnDark, height: 1.3)),
               ]),
             ),
           ]),
@@ -138,11 +148,14 @@ class _LoginState extends ConsumerState<LoginScreen> {
                   const SizedBox(height: 16),
                   const SectionTitle('PIN de 4 dígitos'),
                   const SizedBox(height: 8),
-                  DigitBoxes(value: _pin, length: 4, mask: true, error: _error != null),
-                  if (_error != null) ...[
-                    const SizedBox(height: 10),
-                    Semantics(liveRegion: true, child: InfoBanner(_error!, tone: Tone.error)),
-                  ],
+                  ShakeOnChange(trigger: _shake, child: DigitBoxes(value: _pin, length: 4, mask: true, error: _error != null)),
+                  Reveal(
+                    visible: _error != null,
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Semantics(liveRegion: true, child: InfoBanner(_error ?? '', tone: Tone.error)),
+                    ),
+                  ),
                   const SizedBox(height: 10),
                   NumericPad(
                     enabled: !_busy,

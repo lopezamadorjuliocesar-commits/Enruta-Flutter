@@ -92,7 +92,7 @@ void main() {
       // Datos reflejados: la parada 1 aparece como atendida y el corte muestra el cobro.
       h.go('/ruta');
       await settle(tester);
-      expect(find.textContaining('1 / 3'), findsOneWidget);
+      expect(find.textContaining('1 de 3 paradas'), findsOneWidget);
       h.go('/cliente');
       await settle(tester);
       expect(find.text('Falta indicar la parada o el cliente.'), findsOneWidget);
@@ -107,13 +107,15 @@ void main() {
     await drive(tester, () => h.container.read(sessionProvider.notifier).logout());
     await settle(tester);
     await loginAs(tester, h, 'Negocio · esperanza');
-    await tapText(tester, 'Anteriores (1)');
+    // El pedido entregado aparece en el historial del inicio.
+    await tester.scrollUntilVisible(find.text('Historial'), 200, scrollable: find.byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down).first);
     expect(find.textContaining('Entregado'), findsWidgets);
     h.go('/pedido/${d.order}');
     await settle(tester);
-    expect(find.textContaining('Entrega ENT-'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('Reportar problema'), 200, scrollable: find.byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down).first);
-    expect(find.text('Reportar problema'), findsOneWidget);
+    expect(find.textContaining('Entrega ENT-'), findsWidgets);
+    // El estado va primero y la acción de reportar está en el pie.
+    expect(find.text('Estado del pedido'), findsOneWidget);
+    expect(find.text('Reportar'), findsOneWidget);
     h.go('/negocio/cuenta');
     await settle(tester);
     await tester.scrollUntilVisible(find.textContaining('COB-000001'), 200, scrollable: find.byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down).first);

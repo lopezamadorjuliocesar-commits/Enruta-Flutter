@@ -40,7 +40,7 @@ void main() {
     await tapText(tester, 'Continuar');
     expect(h.location, '/ruta');
     expect(find.text('Ruta R-01'), findsOneWidget);
-    expect(find.textContaining('confirma la carga'), findsOneWidget);
+    expect(find.textContaining('Confirma la carga'), findsOneWidget);
     // Un conductor no puede abrir el portal del negocio.
     h.go('/negocio/pedir');
     await settle(tester);
@@ -62,7 +62,7 @@ void main() {
     expect(h.location, '/negocio/entregas');
     await tapText(tester, 'Pedir');
     expect(h.location, '/negocio/pedir');
-    await tapText(tester, 'Agregar');
+    await tapFinder(tester, find.byTooltip(RegExp('^Agregar ')));
     expect(find.textContaining('Ver carrito · 1 u'), findsOneWidget);
     await tapFinder(tester, find.textContaining('Ver carrito'));
     expect(h.location, '/negocio/carrito');

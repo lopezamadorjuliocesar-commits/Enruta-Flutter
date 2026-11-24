@@ -16,10 +16,19 @@ class EnRutaApp extends ConsumerStatefulWidget {
 }
 
 class _EnRutaAppState extends ConsumerState<EnRutaApp> with WidgetsBindingObserver {
+  late bool _reduceMotion = WidgetsBinding.instance.platformDispatcher.accessibilityFeatures.disableAnimations;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAccessibilityFeatures() {
+    // “Reducir movimiento” / “Quitar animaciones”: el tema cambia a transiciones instantáneas.
+    final v = WidgetsBinding.instance.platformDispatcher.accessibilityFeatures.disableAnimations;
+    if (v != _reduceMotion) setState(() => _reduceMotion = v);
   }
 
   @override
@@ -49,7 +58,7 @@ class _EnRutaAppState extends ConsumerState<EnRutaApp> with WidgetsBindingObserv
     return MaterialApp.router(
       title: 'EnRuta',
       debugShowCheckedModeBanner: false,
-      theme: isClient ? AppTheme.client : AppTheme.driver,
+      theme: AppTheme.of(client: isClient, reducedMotion: _reduceMotion),
       routerConfig: router,
       locale: const Locale('es', 'MX'),
       supportedLocales: const [Locale('es', 'MX'), Locale('es'), Locale('en')],

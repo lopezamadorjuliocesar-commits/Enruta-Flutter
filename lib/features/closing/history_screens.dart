@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../app/providers.dart';
 import '../../app/queries.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/tokens.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
 import '../../core/widgets/common.dart';
@@ -23,7 +24,7 @@ final _historyProvider = FutureProvider.autoDispose.family<List<({Workday w, Clo
   return [for (final w in list) (w: w, c: await ref.watch(closingRepoProvider).closingForWorkday(w.id))];
 });
 
-/// A-14 · Historial completo de jornadas, con filtro por fechas.
+/// Historial completo de jornadas, con filtro por fechas.
 class HistoryScreen extends ConsumerStatefulWidget {
   const HistoryScreen({super.key});
   @override
@@ -46,12 +47,7 @@ class _HistoryState extends ConsumerState<HistoryScreen> {
           tooltip: 'Filtrar por fechas',
           icon: const Icon(Icons.date_range),
           onPressed: () async {
-            final r = await showDateRangePicker(
-              context: context,
-              firstDate: DateTime(2020),
-              lastDate: DateTime.now().add(const Duration(days: 365)),
-              initialDateRange: _range,
-            );
+            final r = await showDateRangePicker(context: context, firstDate: DateTime(2020), lastDate: DateTime.now().add(const Duration(days: 365)), initialDateRange: _range);
             if (r != null) setState(() => _range = r);
           },
         ),
@@ -59,33 +55,30 @@ class _HistoryState extends ConsumerState<HistoryScreen> {
       body: AsyncBody(
         value: rows,
         builder: (list) => list.isEmpty
-            ? const EmptyState('No hay jornadas cerradas en este periodo.', icon: Icons.history)
-            : ListView(padding: const EdgeInsets.all(16), children: EnScaffold.spaced([
-                for (final r in list)
-                  StateCard(
-                    accent: r.c == null ? AppColors.border : closingTone(r.c!.status).fg,
-                    onTap: () => context.push('/historial/detalle?workday=${r.w.id}'),
-                    child: Row(children: [
-                      Expanded(
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text('${weekdayDate(parseIsoDate(r.w.serviceDate))} · Ruta ${r.w.routeCode}', style: const TextStyle(fontWeight: FontWeight.w700)),
-                          Text(r.c == null ? 'Sin corte' : '${r.c!.folio} · paradas ${r.c!.stopsDone}/${r.c!.stopsTotal}',
-                              style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
-                        ]),
+            ? Center(child: EmptyState(_range == null ? 'Aquí verás tus jornadas cerradas.' : 'Prueba con otro rango de fechas.', title: 'Sin jornadas en este periodo', icon: Icons.history))
+            : ListView(
+                padding: const EdgeInsets.all(Sp.gutter),
+                children: [
+                  ListGroup(children: [
+                    for (final r in list)
+                      ListRow(
+                        leading: Icon(r.c == null ? Icons.event_busy : Icons.event_available, color: r.c == null ? AppColors.textSecondary : closingTone(r.c!.status).fg),
+                        title: '${weekdayDate(parseIsoDate(r.w.serviceDate))} · Ruta ${r.w.routeCode}',
+                        subtitle: r.c == null ? 'Sin corte' : '${r.c!.folio} · paradas ${r.c!.stopsDone}/${r.c!.stopsTotal}',
+                        meta: r.c == null ? null : StatusBadge(r.c!.status.label.split(' ·').first, tone: closingTone(r.c!.status)),
+                        trailing: Text(money(r.c?.salesCents ?? 0), style: const TextStyle(fontWeight: FontWeight.w800, fontFeatures: AppText.tabular)),
+                        onTap: () => context.push('/historial/detalle?workday=${r.w.id}'),
+                        chevron: true,
                       ),
-                      Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                        Text(money(r.c?.salesCents ?? 0), style: const TextStyle(fontWeight: FontWeight.w800)),
-                        if (r.c != null) StatusBadge(r.c!.status.label.split(' ·').first, tone: closingTone(r.c!.status)),
-                      ]),
-                    ]),
-                  ),
-              ])),
+                  ]),
+                ],
+              ),
       ),
     );
   }
 }
 
-/// Detalle de una jornada del historial: paradas, entregas, cobros, incidencias y corte.
+/// Detalle de una jornada del historial: paradas, cobros, incidencias y corte.
 class HistoryDetailScreen extends ConsumerWidget {
   const HistoryDetailScreen({super.key, this.workdayId});
   final String? workdayId;
@@ -100,53 +93,57 @@ class HistoryDetailScreen extends ConsumerWidget {
         if (w == null) return const MissingData(title: 'Jornada');
         final c = ref.watch(closingForWorkdayProvider(w.id)).value;
         final stops = ref.watch(stopsProvider(w.id)).value ?? const <Stop>[];
-        final payments = ref.watch(workdayPaymentsProvider(w.id)).value ?? const <Payment>[];
+        final payments = ref.watch(workdayPaymentsProvider(w.id)).value?.where((p) => p.method != PaymentMethod.creditNote).toList() ?? const <Payment>[];
         final incidents = ref.watch(workdayIncidentsProvider(w.id)).value ?? const <Incident>[];
         return EnScaffold(
           title: 'Ruta ${w.routeCode}',
           subtitle: weekdayDate(parseIsoDate(w.serviceDate)),
           back: true,
+          badge: c == null ? null : StatusBadge(c.status.label.split(' ·').first, tone: closingTone(c.status)),
           children: [
-            StateCard(
-              child: Column(children: [
-                KvRow('Salida', w.departedAt == null ? '—' : dateTime(w.departedAt!)),
-                KvRow('Cierre', w.closedAt == null ? '—' : dateTime(w.closedAt!)),
-                KvRow('Kilometraje', '${w.startKm ?? '—'} → ${w.endKm ?? '—'} km'),
-                if (w.departureFolio != null) KvRow('Hoja de salida', w.departureFolio!),
-                if (c != null) ...[
-                  KvRow('Corte', c.folio),
-                  KvRow('Venta', money(c.salesCents), bold: true),
-                  KvRow('Efectivo esperado / declarado', '${money(c.cashExpectedCents)} / ${money(c.cashDeclaredCents)}'),
-                  Align(alignment: Alignment.centerRight, child: StatusBadge(c.status.label, tone: closingTone(c.status))),
-                ],
+            ListGroup(children: [
+              ListRow(leading: const Icon(Icons.flag_outlined), title: 'Salida', subtitle: w.departedAt == null ? '—' : dateTime(w.departedAt!), chevron: false),
+              ListRow(leading: const Icon(Icons.lock_outline), title: 'Cierre', subtitle: w.closedAt == null ? '—' : dateTime(w.closedAt!), chevron: false),
+              ListRow(leading: const Icon(Icons.speed), title: 'Kilometraje', subtitle: '${w.startKm ?? '—'} → ${w.endKm ?? '—'} km', chevron: false),
+            ]),
+            if (c != null)
+              KpiRow([
+                KpiCard('Venta', money(c.salesCents), icon: Icons.point_of_sale, sub: c.folio),
+                KpiCard('Efectivo', money(c.cashDeclaredCents), icon: Icons.payments_outlined, sub: 'Esperado ${money(c.cashExpectedCents)}'),
               ]),
-            ),
-            Wrap(spacing: 8, runSpacing: 8, children: [
-              if (c != null) OutlinedButton.icon(onPressed: () => context.push('/comprobante/corte/${c.id}'), icon: const Icon(Icons.picture_as_pdf), label: const Text('Reporte de corte')),
-              if (w.departureFolio != null)
-                OutlinedButton.icon(onPressed: () => context.push('/comprobante/salida/${w.id}'), icon: const Icon(Icons.picture_as_pdf), label: const Text('Hoja de salida')),
+            ListGroup(children: [
+              if (c != null) ListRow(leading: const Icon(Icons.picture_as_pdf_outlined, color: AppColors.blue), title: 'Reporte de corte', subtitle: c.folio, onTap: () => context.push('/comprobante/corte/${c.id}')),
+              if (w.departureFolio != null) ListRow(leading: const Icon(Icons.picture_as_pdf_outlined, color: AppColors.blue), title: 'Hoja de salida', subtitle: w.departureFolio, onTap: () => context.push('/comprobante/salida/${w.id}')),
             ]),
             SectionTitle('Paradas (${stops.length})'),
-            for (final s in stops) StopTile(stop: s),
-            SectionTitle('Cobros (${payments.where((p) => p.method != PaymentMethod.creditNote).length})'),
-            for (final p in payments.where((p) => p.method != PaymentMethod.creditNote))
-              StateCard(
-                onTap: () => context.push('/comprobante/cobro/${p.id}'),
-                child: Row(children: [
-                  Expanded(child: Text('${p.folio} · ${p.customerName} · ${p.method.label}')),
-                  Text(money(p.amountCents), style: const TextStyle(fontWeight: FontWeight.w700)),
-                ]),
-              ),
+            ListGroup(children: [for (final s in stops) StopTile(stop: s)]),
+            if (payments.isNotEmpty) ...[
+              SectionTitle('Cobros (${payments.length})'),
+              ListGroup(children: [
+                for (final p in payments)
+                  ListRow(
+                    leading: const Icon(Icons.receipt_outlined, color: AppColors.blue),
+                    title: p.customerName,
+                    subtitle: '${p.folio} · ${p.method.label}',
+                    trailing: Text(money(p.amountCents), style: const TextStyle(fontWeight: FontWeight.w700, fontFeatures: AppText.tabular)),
+                    onTap: () => context.push('/comprobante/cobro/${p.id}'),
+                    chevron: false,
+                  ),
+              ]),
+            ],
             if (incidents.isNotEmpty) ...[
               SectionTitle('Incidencias (${incidents.length})'),
-              for (final i in incidents)
-                StateCard(
-                  onTap: () => context.push('/incidencia/${i.id}'),
-                  child: Row(children: [
-                    Expanded(child: Text('${i.folio} · ${i.kind}${i.productName == null ? '' : ' · ${i.productName}'}')),
-                    StatusBadge(i.status.label, tone: Tone.info),
-                  ]),
-                ),
+              ListGroup(children: [
+                for (final i in incidents)
+                  ListRow(
+                    leading: const Icon(Icons.report_outlined, color: AppColors.warning),
+                    title: '${i.folio} · ${i.kind}',
+                    subtitle: i.productName,
+                    trailing: StatusBadge(i.status.label, tone: Tone.info),
+                    onTap: () => context.push('/incidencia/${i.id}'),
+                    chevron: false,
+                  ),
+              ]),
             ],
           ],
         );

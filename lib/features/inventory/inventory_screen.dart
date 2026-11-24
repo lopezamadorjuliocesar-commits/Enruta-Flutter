@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../app/queries.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/tokens.dart';
 import '../../core/utils/dates.dart';
 import '../../core/widgets/common.dart';
 import '../../domain/entities.dart';
@@ -25,7 +26,7 @@ class _InventoryState extends ConsumerState<InventoryScreen> {
     return AsyncBody(
       value: wd,
       builder: (w) {
-        if (w == null) return const EnScaffold(title: 'Inventario', children: [EmptyState('Sin jornada abierta.', icon: Icons.inventory_2_outlined)]);
+        if (w == null) return const EnScaffold(title: 'Inventario', children: [EmptyState('Inicia una jornada para ver la existencia de tu unidad.', title: 'Sin jornada abierta', icon: Icons.inventory_2_outlined)]);
         final inv = ref.watch(inventoryProvider(w.id));
         final movs = ref.watch(movementsProvider(w.id));
         return EnScaffold(
@@ -52,46 +53,39 @@ class _InventoryState extends ConsumerState<InventoryScreen> {
                   onSelected: (v) => setState(() => _movements = v),
                 ),
                 if (!_movements) ...[
-                  if (rows.isEmpty) const EmptyState('Sin productos en la unidad.', icon: Icons.inventory_2_outlined),
-                  for (final r in rows)
-                    StateCard(
-                      accent: r.available < 0 ? AppColors.error : (r.available == 0 ? AppColors.amber : AppColors.success),
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Row(children: [
-                          Expanded(child: Text(r.product.name, style: const TextStyle(fontWeight: FontWeight.w700))),
-                          StatusBadge(r.available < 0 ? 'Inconsistente: ${r.available}' : 'Disponible ${r.available}',
-                              tone: r.available < 0 ? Tone.error : (r.available == 0 ? Tone.warning : Tone.success)),
-                        ]),
-                        const SizedBox(height: 6),
-                        Wrap(spacing: 14, runSpacing: 4, children: [
-                          _n('Cargado', r.loaded),
-                          _n('Entregado', r.delivered),
-                          _n('Devuelto vendible', r.returnedSellable),
-                          _n('Dañado', r.returnedDamaged, color: r.returnedDamaged > 0 ? AppColors.error : null),
-                        ]),
-                      ]),
-                    ),
+                  if (rows.isEmpty)
+                    const EmptyState('Sin productos en la unidad.', icon: Icons.inventory_2_outlined)
+                  else
+                    ListGroup(children: [
+                      for (final r in rows)
+                        ListRow(
+                          title: r.product.name,
+                          subtitle: 'Cargado ${r.loaded} · Entregado ${r.delivered} · Devuelto ${r.returnedSellable}${r.returnedDamaged > 0 ? ' · Dañado ${r.returnedDamaged}' : ''}',
+                          meta: r.available < 0
+                              ? const StatusBadge('Inconsistente: revisa movimientos', tone: Tone.error)
+                              : (r.available == 0 ? const StatusBadge('Agotado en la unidad', tone: Tone.warning) : null),
+                          trailing: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                            Text('${r.available}', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, fontFeatures: AppText.tabular, color: r.available < 0 ? AppColors.error : AppColors.text)),
+                            const Text('disponibles', style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
+                          ]),
+                          chevron: false,
+                        ),
+                    ]),
                 ] else
                   AsyncBody(
                     value: movs,
                     builder: (list) => list.isEmpty
                         ? const EmptyState('Sin movimientos registrados.', icon: Icons.swap_vert)
-                        : Column(children: EnScaffold.spaced([
+                        : ListGroup(children: [
                             for (final m in list)
-                              StateCard(
-                                child: Row(children: [
-                                  Icon(_icon(m.type), color: m.type == MovementType.delivery ? AppColors.error : AppColors.success),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                      Text('${m.type.label} · ${m.productName}', style: const TextStyle(fontWeight: FontWeight.w600)),
-                                      Text('${m.refLabel} · ${dateTime(m.at)}', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                                    ]),
-                                  ),
-                                  Text('${m.type == MovementType.delivery ? '−' : '+'}${m.qty}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                                ]),
+                              ListRow(
+                                leading: Icon(_icon(m.type), color: m.type == MovementType.delivery ? AppColors.error : AppColors.success),
+                                title: '${m.type.label} · ${m.productName}',
+                                subtitle: '${m.refLabel} · ${dateTime(m.at)}',
+                                trailing: Text('${m.type == MovementType.delivery ? '−' : '+'}${m.qty}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, fontFeatures: AppText.tabular)),
+                                chevron: false,
                               ),
-                          ], 8)),
+                          ]),
                   ),
               ]));
             },
@@ -107,9 +101,4 @@ class _InventoryState extends ConsumerState<InventoryScreen> {
         MovementType.returnSellable => Icons.assignment_return,
         MovementType.returnDamaged => Icons.broken_image,
       };
-
-  Widget _n(String k, int v, {Color? color}) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(k, style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
-        Text('$v', style: TextStyle(fontWeight: FontWeight.w800, color: color)),
-      ]);
 }

@@ -4,29 +4,38 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../app/queries.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/tokens.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
 import '../../core/widgets/common.dart';
 import '../../domain/entities.dart';
 import '../../domain/enums.dart';
+import '../../domain/errors.dart';
 import '../../domain/rules/credit_rules.dart';
 import 'map_screen.dart';
 import 'route_widgets.dart';
 
-/// M-19 · Detalle del cliente. Se abre con IDs explícitos de parada y/o cliente.
+/// Detalle del cliente / parada. Se abre con IDs explícitos de parada y/o cliente.
+///
+/// Orden de lectura: dónde estoy → qué entrego → cuánto debe → qué más puedo
+/// hacer. La acción principal (entregar o cobrar) está fija en el pie.
 class ClientDetailScreen extends ConsumerWidget {
   const ClientDetailScreen({super.key, this.stopId, this.customerId});
   final String? stopId, customerId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (stopId == null && customerId == null) return const MissingData(title: 'Cliente', message: 'Falta indicar la parada o el cliente.');
+    if (stopId == null && customerId == null) {
+      return const MissingData(title: 'Cliente', message: 'Falta indicar la parada o el cliente.');
+    }
     final stopV = stopId == null ? const AsyncValue<Stop?>.data(null) : ref.watch(stopProvider(stopId!));
     return AsyncBody(
       value: stopV,
       builder: (stop) {
         final cid = stop?.customer.id ?? customerId;
-        if (cid == null || (stopId != null && stop == null)) return const MissingData(title: 'Cliente', message: 'La parada no existe.');
+        if (cid == null || (stopId != null && stop == null)) {
+          return const MissingData(title: 'Cliente', message: 'La parada no existe.');
+        }
         return _Body(stop: stop, customerId: cid);
       },
     );
@@ -38,10 +47,21 @@ class _Body extends ConsumerWidget {
   final Stop? stop;
   final String customerId;
 
+  /// Ejecuta una acción asíncrona mostrando los errores de negocio como aviso.
+  Future<void> _guard(BuildContext context, Future<void> Function() f) async {
+    try {
+      await f();
+    } catch (e) {
+      if (context.mounted) snack(context, friendlyError(e), error: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final customer = ref.watch(customerProvider(customerId)).value ?? stop?.customer;
-    if (customer == null) return const EnScaffold(title: 'Cliente', children: [Center(child: CircularProgressIndicator())]);
+    if (customer == null) {
+      return const EnScaffold(title: 'Cliente', body: SkeletonList());
+    }
     final usage = ref.watch(creditUsageProvider(customerId)).value;
     final docs = ref.watch(receivablesProvider(customerId)).value ?? const <Receivable>[];
     final visits = ref.watch(customerDeliveriesProvider(customerId)).value ?? const <Delivery>[];
@@ -56,127 +76,125 @@ class _Body extends ConsumerWidget {
     final overdue = openDocs.where((d) => d.overdue(now)).length;
     final balance = usage?.balance ?? 0;
     final available = usage == null ? 0 : availableCredit(limitCents: customer.creditLimitCents, balanceCents: usage.balance, openOrdersCents: usage.openOrders);
+    final st = s == null ? null : stopStyle(s.status);
 
     return EnScaffold(
       title: customer.name,
       subtitle: [if (s != null) 'Parada ${s.seq}', if (customer.visitDays.isNotEmpty) 'Visita ${customer.visitDays}'].join(' · '),
-      badge: s == null ? null : StatusBadge(s.status.label, onDark: true),
+      badge: s == null ? null : StatusBadge(s.status.label, tone: st!.tone, icon: st.icon),
       back: true,
       children: [
-        KpiRow([
-          KpiCard('Saldo', money(balance), icon: Icons.account_balance_wallet, valueColor: balance > 0 ? AppColors.error : AppColors.success,
-              sub: overdue > 0 ? '$overdue documento(s) vencido(s)' : 'Sin vencidos'),
-          KpiCard(customer.hasCredit ? 'Crédito disponible' : 'Condición', customer.hasCredit ? money(available) : 'Contado',
-              icon: Icons.credit_score, sub: customer.hasCredit ? 'Límite ${money(customer.creditLimitCents)}' : 'Pago contra entrega'),
-        ]),
+        // ── Dónde estoy ──
         if (s != null)
-          StateCard(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const SectionTitle('Domicilio de entrega'),
-              const SizedBox(height: 4),
-              Text(s.address.full),
-              if (customer.schedule.isNotEmpty) Text('Horario ${customer.schedule} · Contacto ${customer.contactName} · ${customer.phone}', style: const TextStyle(fontSize: 12.5, color: AppColors.textSubtitle)),
-              if (s.arrivedAt != null) Padding(padding: const EdgeInsets.only(top: 6), child: StatusBadge('Llegada ${hm(s.arrivedAt!)} · ${s.arrivalFix?.describe() ?? ''}', tone: Tone.info, icon: Icons.place)),
-              const SizedBox(height: 8),
-              Wrap(spacing: 8, children: [
-                OutlinedButton.icon(onPressed: () => openNavigation(context, s.address), icon: const Icon(Icons.navigation), label: const Text('Navegar')),
-                if (open && s.arrivedAt == null)
-                  PrimaryButton('Registrar llegada', icon: Icons.place, outlined: true, onPressed: () => registerArrival(context, ref, s)),
-              ]),
-            ]),
-          ),
+          ListGroup(children: [
+            ListRow(
+              leading: const Icon(Icons.place, color: AppColors.blue),
+              title: s.address.full,
+              subtitle: [if (customer.schedule.isNotEmpty) 'Horario ${customer.schedule}', if (customer.contactName.isNotEmpty) customer.contactName].join(' · '),
+              trailing: const Icon(Icons.navigation, color: AppColors.blue),
+              onTap: () => openNavigation(context, s.address),
+            ),
+            if (open)
+              ListRow(
+                leading: Icon(s.arrivedAt == null ? Icons.pin_drop_outlined : Icons.check_circle, color: s.arrivedAt == null ? AppColors.blue : AppColors.success),
+                title: s.arrivedAt == null ? 'Registrar llegada' : 'Llegada ${hm(s.arrivedAt!)}',
+                subtitle: s.arrivedAt == null ? 'Guarda la hora y tu ubicación' : (s.arrivalFix?.describe() ?? ''),
+                onTap: s.arrivedAt == null ? () => _guard(context, () => registerArrival(context, ref, s)) : null,
+                chevron: s.arrivedAt == null,
+              ),
+          ]),
+        // ── Qué entrego ──
         if (order != null) ...[
-          SectionTitle('Pedido ${order.folio}', trailing: StatusBadge(order.status.label, tone: Tone.info)),
-          StateCard(
+          SectionTitle('Pedido ${order.folio}', trailing: StatusBadge(order.status.label, tone: Tone.neutral, icon: Icons.local_shipping_outlined)),
+          InkWell(
+            borderRadius: BorderRadius.circular(Rd.lg),
             onTap: () => context.push('/pedido/${order.id}'),
-            child: Column(children: [
-              for (final i in order.items)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 3),
-                  child: Row(children: [
-                    Expanded(child: Text('${i.qty} × ${i.product.name}')),
-                    Text(money(i.totalCents), style: const TextStyle(fontWeight: FontWeight.w600)),
-                  ]),
-                ),
-              const Divider(),
-              KvRow('Total del pedido', money(order.totalCents), bold: true),
-              if (order.notes.isNotEmpty) Align(alignment: Alignment.centerLeft, child: Text('Nota: ${order.notes}', style: const TextStyle(fontSize: 12.5))),
+            child: ListGroup(children: [
+              for (final i in order.items) _ItemLine('${i.qty} × ${i.product.name}', money(i.totalCents)),
+              _ItemLine('Total', money(order.totalCents), bold: true),
+              if (order.notes.isNotEmpty) Padding(padding: const EdgeInsets.fromLTRB(Sp.lg, 0, Sp.lg, Sp.md), child: Text('Nota: ${order.notes}', style: const TextStyle(fontSize: 13, color: AppColors.textSubtitle))),
             ]),
           ),
         ] else if (s != null)
           const InfoBanner('Esta parada no tiene pedido programado. Puedes capturar una preventa.'),
-        if (s != null && !s.status.isOpen && s.deliveryId != null)
-          PrimaryButton('Ver resultado de la visita', icon: Icons.receipt, outlined: true, onPressed: () => context.push('/entregada?delivery=${s.deliveryId}')),
-        SectionTitle('Documentos con saldo (${openDocs.length})'),
-        if (openDocs.isEmpty) const Text('Sin documentos pendientes.', style: TextStyle(color: AppColors.textSubtitle)),
-        for (final d in openDocs)
-          StateCard(
-            accent: d.overdue(now) ? AppColors.error : null,
-            child: Row(children: [
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('${d.folio} · ${d.kind.label}', style: const TextStyle(fontWeight: FontWeight.w600)),
-                  Text('Vence ${fullDate(d.dueAt)}', style: TextStyle(fontSize: 12.5, color: d.overdue(now) ? AppColors.error : AppColors.textSecondary)),
-                ]),
+        // ── Cuánto debe ──
+        KpiRow([
+          KpiCard('Saldo', money(balance), icon: Icons.account_balance_wallet_outlined, valueColor: balance > 0 ? AppColors.error : AppColors.success, sub: overdue > 0 ? '$overdue vencido(s)' : 'Sin vencidos'),
+          KpiCard(customer.hasCredit ? 'Crédito disponible' : 'Condición', customer.hasCredit ? money(available) : 'Contado', icon: Icons.credit_score_outlined, sub: customer.hasCredit ? 'Límite ${money(customer.creditLimitCents)}' : 'Paga al recibir'),
+        ]),
+        if (openDocs.isNotEmpty) ...[
+          SectionTitle('Documentos con saldo (${openDocs.length})'),
+          ListGroup(children: [
+            for (final d in openDocs)
+              ListRow(
+                leading: Icon(d.overdue(now) ? Icons.warning_amber_rounded : Icons.description_outlined, color: d.overdue(now) ? AppColors.error : AppColors.textSecondary),
+                title: '${d.folio} · ${d.kind.label}',
+                subtitle: 'Vence ${fullDate(d.dueAt)}${d.overdue(now) ? ' · vencido' : ''}',
+                trailing: Text(money(d.balanceCents), style: const TextStyle(fontWeight: FontWeight.w800, fontFeatures: AppText.tabular)),
+                chevron: false,
               ),
-              if (d.overdue(now)) const Padding(padding: EdgeInsets.only(right: 8), child: StatusBadge('Vencido', tone: Tone.error)),
-              Text(money(d.balanceCents), style: const TextStyle(fontWeight: FontWeight.w800)),
-            ]),
+          ]),
+        ],
+        // ── Qué más puedo hacer ──
+        SectionTitle('Más acciones'),
+        ListGroup(children: [
+          ListRow(
+            leading: const Icon(Icons.add_shopping_cart, color: AppColors.blue),
+            title: 'Capturar preventa',
+            subtitle: 'Pedido para una próxima entrega',
+            onTap: inRoute ? () => context.push('/preventa?customer=$customerId${s == null ? '' : '&stop=${s.id}'}') : null,
           ),
-        SectionTitle('Visitas recientes (${visits.length})'),
-        if (visits.isEmpty) const Text('Sin visitas registradas.', style: TextStyle(color: AppColors.textSubtitle)),
-        for (final v in visits.take(5))
-          StateCard(
-            onTap: () => context.push('/entregada?delivery=${v.id}'),
-            child: Row(children: [
-              Icon(stopStyle(v.outcome).icon, color: stopStyle(v.outcome).accent),
-              const SizedBox(width: 8),
-              Expanded(child: Text('${v.folio} · ${dateTime(v.confirmedAt)}')),
-              Text(v.outcome == StopStatus.failed ? (v.failureReason ?? '') : money(v.totalCents), style: const TextStyle(fontWeight: FontWeight.w600)),
-            ]),
+          ListRow(
+            leading: const Icon(Icons.fact_check_outlined, color: AppColors.blue),
+            title: 'Auditoría de exhibición',
+            subtitle: audits.isEmpty ? 'Fotos y productos en anaquel' : '${audits.length} registrada(s)',
+            onTap: inRoute ? () => context.push('/auditoria?customer=$customerId${s == null ? '' : '&stop=${s.id}'}') : null,
           ),
-        if (audits.isNotEmpty) ...[
-          SectionTitle('Auditorías (${audits.length})'),
-          for (final a in audits.take(3))
-            StateCard(
-              onTap: () => context.push('/auditoria?id=${a.id}'),
-              child: Row(children: [
-                const Icon(Icons.storefront, color: AppColors.blue),
-                const SizedBox(width: 8),
-                Expanded(child: Text('${dateTime(a.createdAt)} · ${a.visible ? 'Exhibición visible' : 'No visible'} · ${a.faces} frentes')),
-                const Icon(Icons.chevron_right),
-              ]),
-            ),
+        ]),
+        if (s != null && !s.status.isOpen && s.deliveryId != null)
+          PrimaryButton('Ver resultado de la visita', icon: Icons.receipt_long, outlined: true, onPressed: () => context.push('/entregada?delivery=${s.deliveryId}')),
+        if (visits.isNotEmpty) ...[
+          SectionTitle('Visitas recientes'),
+          ListGroup(children: [
+            for (final v in visits.take(5))
+              ListRow(
+                leading: Icon(stopStyle(v.outcome).icon, color: stopStyle(v.outcome).tone.fg),
+                title: '${v.folio} · ${v.outcome.label}',
+                subtitle: dateTime(v.confirmedAt),
+                trailing: Text(v.outcome == StopStatus.failed ? (v.failureReason ?? '') : money(v.totalCents), style: const TextStyle(fontWeight: FontWeight.w700, fontFeatures: AppText.tabular)),
+                onTap: () => context.push('/entregada?delivery=${v.id}'),
+                chevron: false,
+              ),
+          ]),
         ],
       ],
       footer: !inRoute
           ? const Text('Inicia la ruta para entregar o cobrar.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSubtitle))
-          : FooterActions(
-              secondary: [
-                OutlinedButton.icon(onPressed: () => context.push('/cobro?customer=$customerId'), icon: const Icon(Icons.payments), label: const Text('Cobrar')),
-                OutlinedButton.icon(
-                    onPressed: () => context.push('/preventa?customer=$customerId${s == null ? '' : '&stop=${s.id}'}'),
-                    icon: const Icon(Icons.add_shopping_cart),
-                    label: const Text('Preventa')),
-                OutlinedButton.icon(
-                    onPressed: () => context.push('/auditoria?customer=$customerId${s == null ? '' : '&stop=${s.id}'}'),
-                    icon: const Icon(Icons.fact_check),
-                    label: const Text('Auditar')),
-              ],
-              primary: open
-                  ? Row(children: [
-                      Expanded(
-                        child: PrimaryButton('No entregar', outlined: true, danger: true, onPressed: () => context.push('/no-entrega?stop=${s.id}')),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        flex: 2,
-                        child: PrimaryButton(s.orderId == null ? 'Entregar productos' : 'Entregar pedido',
-                            icon: Icons.local_shipping, onPressed: () => context.push('/entrega?stop=${s.id}')),
-                      ),
-                    ])
-                  : const SizedBox.shrink(),
-            ),
+          : open
+              ? FooterActions(
+                  secondary: [
+                    PrimaryButton('No entregar', icon: Icons.block, outlined: true, danger: true, onPressed: () => context.push('/no-entrega?stop=${s.id}')),
+                    PrimaryButton('Cobrar', icon: Icons.payments_outlined, outlined: true, onPressed: () => context.push('/cobro?customer=$customerId')),
+                  ],
+                  primary: PrimaryButton(s.orderId == null ? 'Entregar productos' : 'Entregar pedido', icon: Icons.local_shipping, onPressed: () => context.push('/entrega?stop=${s.id}')),
+                )
+              : PrimaryButton('Cobrar', icon: Icons.payments_outlined, onPressed: () => context.push('/cobro?customer=$customerId')),
     );
   }
+}
+
+/// Renglón compacto de un pedido (cantidad y nombre a la izquierda, importe a la derecha).
+class _ItemLine extends StatelessWidget {
+  const _ItemLine(this.left, this.right, {this.bold = false});
+  final String left, right;
+  final bool bold;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Sp.lg, vertical: 10),
+        child: Row(children: [
+          Expanded(child: Text(left, style: TextStyle(fontWeight: bold ? FontWeight.w800 : FontWeight.w500))),
+          Text(right, style: TextStyle(fontWeight: bold ? FontWeight.w800 : FontWeight.w600, fontFeatures: AppText.tabular)),
+        ]),
+      );
 }

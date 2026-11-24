@@ -5,14 +5,16 @@ import 'package:material_ui/material_ui.dart';
 import '../../app/providers.dart';
 import '../../app/queries.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/tokens.dart';
 import '../../core/utils/money.dart';
 import '../../core/widgets/common.dart';
 import '../../data/repositories/order_repository.dart';
 import '../../domain/entities.dart';
 
-/// Pedir: catálogo con búsqueda y filtros; el carrito se guarda en SQLite.
-/// Regla de disponibilidad: se muestra “Disponible” para productos activos del
-/// catálogo; la existencia física del almacén no se conoce en el dispositivo.
+/// Catálogo: búsqueda y categorías arriba, productos en una lista limpia y el
+/// carrito siempre a un toque en el pie. El carrito se guarda en SQLite.
+/// Todos los productos activos del catálogo se muestran como disponibles (la
+/// existencia del almacén no se conoce en el teléfono).
 class ClientCatalogScreen extends ConsumerStatefulWidget {
   const ClientCatalogScreen({super.key});
   @override
@@ -47,7 +49,7 @@ class _CatalogState extends ConsumerState<ClientCatalogScreen> {
       back: false,
       body: Column(children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          padding: const EdgeInsets.fromLTRB(Sp.gutter, Sp.md, Sp.gutter, Sp.xs),
           child: TextField(
             controller: _search,
             textInputAction: TextInputAction.search,
@@ -57,71 +59,105 @@ class _CatalogState extends ConsumerState<ClientCatalogScreen> {
               prefixIcon: const Icon(Icons.search),
               suffixIcon: _query.isEmpty
                   ? null
-                  : IconButton(tooltip: 'Limpiar', onPressed: () => setState(() { _search.clear(); _query = ''; }), icon: const Icon(Icons.clear)),
+                  : IconButton(
+                      tooltip: 'Limpiar búsqueda',
+                      onPressed: () => setState(() {
+                        _search.clear();
+                        _query = '';
+                      }),
+                      icon: const Icon(Icons.clear),
+                    ),
             ),
           ),
         ),
         SizedBox(
-          height: 52,
-          child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), children: [
-            ChoiceChip(label: const Text('Todo'), selected: _category == null, onSelected: (_) => setState(() => _category = null)),
-            for (final c in cats)
-              Padding(padding: const EdgeInsets.only(left: 8), child: ChoiceChip(label: Text(c), selected: _category == c, onSelected: (_) => setState(() => _category = c))),
-          ]),
+          height: 56,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: Sp.gutter, vertical: Sp.sm),
+            children: [
+              for (final c in [null, ...cats])
+                Padding(
+                  padding: const EdgeInsets.only(right: Sp.sm),
+                  child: ChoiceChip(
+                    label: Text(c ?? 'Todo'),
+                    selected: _category == c,
+                    onSelected: (_) {
+                      tapFeedback();
+                      setState(() => _category = c);
+                    },
+                  ),
+                ),
+            ],
+          ),
         ),
         Expanded(
           child: AsyncBody(
             value: products,
             builder: (list) => list.isEmpty
-                ? const EmptyState('No encontramos productos con esa búsqueda.', icon: Icons.search_off)
-                : ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: EnScaffold.spaced([
-                    for (final p in list) _ProductCard(product: p, qty: inCart[p.id] ?? 0, onQty: (q) => repo.setCartQty(user.id, p.id, q)),
-                  ], 10)),
+                ? const Center(child: EmptyState('Prueba con otro nombre o categoría.', title: 'No encontramos productos', icon: Icons.search_off))
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(Sp.gutter, Sp.xs, Sp.gutter, Sp.xl),
+                    children: [
+                      ListGroup(children: [for (final p in list) _ProductRow(product: p, qty: inCart[p.id] ?? 0, onQty: (q) => repo.setCartQty(user.id, p.id, q))]),
+                    ],
+                  ),
           ),
         ),
       ]),
-      footer: PrimaryButton(cart.isEmpty ? 'Tu carrito está vacío' : 'Ver carrito · $units u · ${money(total)}',
-          icon: Icons.shopping_cart, onPressed: cart.isEmpty ? null : () => context.push('/negocio/carrito')),
+      footer: PrimaryButton(
+        cart.isEmpty ? 'Agrega productos a tu carrito' : 'Ver carrito · $units u · ${money(total)}',
+        icon: Icons.shopping_cart_outlined,
+        onPressed: cart.isEmpty ? null : () => context.push('/negocio/carrito'),
+      ),
     );
   }
 }
 
-class _ProductCard extends StatelessWidget {
-  const _ProductCard({required this.product, required this.qty, required this.onQty});
+class _ProductRow extends StatelessWidget {
+  const _ProductRow({required this.product, required this.qty, required this.onQty});
   final Product product;
   final int qty;
   final ValueChanged<int> onQty;
+
   @override
-  Widget build(BuildContext context) => StateCard(
-        accent: qty > 0 ? AppColors.emerald : null,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(color: AppColors.emeraldSoft, borderRadius: BorderRadius.circular(12)),
-              child: const Icon(Icons.inventory_2, color: AppColors.emerald),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(product.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-                Text('${product.presentation} · ${product.category}', style: const TextStyle(fontSize: 12.5, color: AppColors.textSubtitle)),
-                const SizedBox(height: 4),
-                Wrap(spacing: 6, runSpacing: 4, children: [
-                  const StatusBadge('Disponible', tone: Tone.success),
-                  if (product.promo != null) StatusBadge(product.promo!, tone: Tone.warning, icon: Icons.local_offer),
-                ]),
+  Widget build(BuildContext context) => AnimatedContainer(
+        duration: motion(context, Dur.base),
+        color: qty > 0 ? AppColors.emeraldSoft.withValues(alpha: .6) : Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: Sp.lg, vertical: Sp.md),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(color: AppColors.emeraldSoft, borderRadius: BorderRadius.circular(Rd.md)),
+            child: const Icon(Icons.inventory_2_outlined, color: AppColors.emerald),
+          ),
+          const SizedBox(width: Sp.md),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(product.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+              Text(product.presentation, style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+              const SizedBox(height: 2),
+              Wrap(spacing: Sp.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                Text(money(product.priceCents), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, fontFeatures: AppText.tabular)),
+                if (product.promo != null) StatusBadge(product.promo!, tone: Tone.warning, icon: Icons.local_offer),
               ]),
-            ),
-          ]),
-          const SizedBox(height: 8),
-          Wrap(alignment: WrapAlignment.spaceBetween, crossAxisAlignment: WrapCrossAlignment.center, spacing: 8, runSpacing: 6, children: [
-            Text(money(product.priceCents), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-            qty == 0
-                ? OutlinedButton.icon(onPressed: () => onQty(1), icon: const Icon(Icons.add_shopping_cart), label: const Text('Agregar'))
-                : QtyStepper(label: product.name, value: qty, onChanged: onQty),
-          ]),
+            ]),
+          ),
+          const SizedBox(width: Sp.sm),
+          qty == 0
+              ? PressScale(
+                  child: IconButton.filled(
+                    tooltip: 'Agregar ${product.name}',
+                    onPressed: () {
+                      tapFeedback();
+                      onQty(1);
+                    },
+                    icon: const Icon(Icons.add),
+                    style: IconButton.styleFrom(backgroundColor: AppColors.emerald, foregroundColor: Colors.white, minimumSize: const Size(Hit.min, Hit.min)),
+                  ),
+                )
+              : QtyStepper(label: product.name, value: qty, onChanged: onQty),
         ]),
       );
 }

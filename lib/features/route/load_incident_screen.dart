@@ -45,8 +45,13 @@ class _LoadIncidentState extends ConsumerState<LoadIncidentScreen> {
     return AsyncBody(
       value: wd,
       builder: (w) {
-        if (w == null) return const MissingData(title: 'Incidencia de carga', message: 'No tienes una jornada abierta.');
-        final lines = ref.watch(loadLinesProvider(w.id)).value ?? const <LoadLine>[];
+        if (w == null)
+          return const MissingData(
+            title: 'Incidencia de carga',
+            message: 'No tienes una jornada abierta.',
+          );
+        final lines =
+            ref.watch(loadLinesProvider(w.id)).value ?? const <LoadLine>[];
         final draftKey = 'load-incident:$_key';
         final line = lines.where((l) => l.product.id == _product).firstOrNull;
         return EnScaffold(
@@ -58,47 +63,83 @@ class _LoadIncidentState extends ConsumerState<LoadIncidentScreen> {
               initialValue: _product,
               isExpanded: true,
               decoration: const InputDecoration(labelText: 'Producto afectado'),
-              items: [for (final l in lines) DropdownMenuItem(value: l.product.id, child: Text('${l.product.name} (esperado ${l.expectedQty})', overflow: TextOverflow.ellipsis))],
+              items: [
+                for (final l in lines)
+                  DropdownMenuItem(
+                    value: l.product.id,
+                    child: Text(
+                      '${l.product.name} (esperado ${l.expectedQty})',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
               onChanged: (v) => setState(() => _product = v),
             ),
             const SectionTitle('Tipo de incidencia'),
-            Wrap(spacing: 8, runSpacing: 8, children: [
-              for (final k in Reasons.loadIncidents) ChoiceChip(label: Text(k), selected: _kind == k, onSelected: (_) => setState(() => _kind = k)),
-            ]),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final k in Reasons.loadIncidents)
+                  ChoiceChip(
+                    label: Text(k),
+                    selected: _kind == k,
+                    onSelected: (_) => setState(() => _kind = k),
+                  ),
+              ],
+            ),
             TextField(
               controller: _desc,
               maxLines: 4,
               onChanged: (_) => setState(() => _descError = null),
-              decoration: InputDecoration(labelText: 'Descripción', hintText: 'Qué ocurrió, cantidades afectadas…', errorText: _descError),
+              decoration: InputDecoration(
+                labelText: 'Descripción',
+                hintText: 'Qué ocurrió, cantidades afectadas…',
+                errorText: _descError,
+              ),
             ),
             PhotoEvidencePicker(draftKey: draftKey, min: 1, max: 3),
           ],
-          footer: PrimaryButton('Registrar incidencia', icon: Icons.report, onPressed: _product == null || _kind == null
-              ? null
-              : () async {
-                  if (_desc.text.trim().length < 10) {
-                    setState(() => _descError = 'Describe el problema (mín. 10 caracteres).');
-                    return;
-                  }
-                  final s = ref.read(sessionProvider);
-                  final id = await ref.read(fieldRepoProvider).createIncident(
-                        companyId: s.company!.id,
-                        source: IncidentSource.driverLoad,
-                        kind: _kind!,
-                        description: _desc.text,
-                        draftKey: draftKey,
-                        actorId: s.user!.id,
-                        idempotencyKey: _key,
-                        workdayId: w.id,
-                        loadLineId: line?.id,
-                        productId: _product,
+          footer: PrimaryButton(
+            'Registrar incidencia',
+            icon: Icons.report,
+            onPressed: _product == null || _kind == null
+                ? null
+                : () async {
+                    if (_desc.text.trim().length < 10) {
+                      setState(
+                        () => _descError =
+                            'Describe el problema (mín. 10 caracteres).',
                       );
-                  final inc = await ref.read(fieldRepoProvider).incidentById(id);
-                  if (context.mounted) {
-                    snack(context, 'Incidencia ${inc?.folio ?? ''} registrada.');
-                    context.pop();
-                  }
-                }),
+                      return;
+                    }
+                    final s = ref.read(sessionProvider);
+                    final id = await ref
+                        .read(fieldRepoProvider)
+                        .createIncident(
+                          companyId: s.company!.id,
+                          source: IncidentSource.driverLoad,
+                          kind: _kind!,
+                          description: _desc.text,
+                          draftKey: draftKey,
+                          actorId: s.user!.id,
+                          idempotencyKey: _key,
+                          workdayId: w.id,
+                          loadLineId: line?.id,
+                          productId: _product,
+                        );
+                    final inc = await ref
+                        .read(fieldRepoProvider)
+                        .incidentById(id);
+                    if (context.mounted) {
+                      snack(
+                        context,
+                        'Incidencia ${inc?.folio ?? ''} registrada.',
+                      );
+                      context.pop();
+                    }
+                  },
+          ),
         );
       },
     );

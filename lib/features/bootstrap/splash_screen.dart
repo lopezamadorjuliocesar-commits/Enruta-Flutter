@@ -22,7 +22,8 @@ class SplashScreen extends ConsumerWidget {
             constraints: const BoxConstraints(maxWidth: 420),
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(32),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
+              child: FadeSlideIn(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
                 const TenantBadge('', size: 96),
                 const SizedBox(height: 20),
                 const Text('EnRuta', style: TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w900)),
@@ -69,6 +70,7 @@ class SplashScreen extends ConsumerWidget {
                 const SizedBox(height: 40),
                 Text('Versión ${AppConfig.appVersion}', style: const TextStyle(color: AppColors.textOnDark, fontSize: 11)),
               ]),
+              ),
             ),
           ),
         ),

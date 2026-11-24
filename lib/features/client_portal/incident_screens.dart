@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../app/providers.dart';
 import '../../app/queries.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/tokens.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/ids.dart';
 import '../../core/widgets/common.dart';
@@ -111,6 +112,7 @@ class _ClientIncidentState extends ConsumerState<ClientIncidentScreen> {
 
 class IncidentsListScreen extends ConsumerWidget {
   const IncidentsListScreen({super.key});
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = ref.watch(sessionProvider).customer!;
@@ -121,22 +123,22 @@ class IncidentsListScreen extends ConsumerWidget {
       body: AsyncBody(
         value: ref.watch(customerIncidentsProvider(c.id)),
         builder: (list) => list.isEmpty
-            ? const EmptyState('No has reportado problemas.', icon: Icons.sentiment_satisfied)
-            : ListView(padding: const EdgeInsets.all(16), children: EnScaffold.spaced([
-                for (final i in list)
-                  StateCard(
-                    accent: incidentTone(i.status).fg,
-                    onTap: () => context.push('/incidencia/${i.id}'),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Row(children: [
-                        Expanded(child: Text('${i.folio} · ${i.kind}', style: const TextStyle(fontWeight: FontWeight.w700))),
-                        StatusBadge(i.status.label, tone: incidentTone(i.status)),
-                      ]),
-                      Text('${i.orderFolio == null ? '' : 'Pedido ${i.orderFolio} · '}${dateTime(i.createdAt)}', style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
-                      Text(i.description, maxLines: 2, overflow: TextOverflow.ellipsis),
-                    ]),
-                  ),
-              ])),
+            ? const Center(child: EmptyState('Si algo sale mal con un pedido, repórtalo desde su detalle.', title: 'No has reportado problemas', icon: Icons.sentiment_satisfied))
+            : ListView(
+                padding: const EdgeInsets.all(Sp.gutter),
+                children: [
+                  ListGroup(children: [
+                    for (final i in list)
+                      ListRow(
+                        leading: Icon(incidentTone(i.status).icon, color: incidentTone(i.status).fg),
+                        title: '${i.folio} · ${i.kind}',
+                        subtitle: '${i.orderFolio == null ? '' : 'Pedido ${i.orderFolio} · '}${dateTime(i.createdAt)}',
+                        meta: StatusBadge(i.status.label, tone: incidentTone(i.status)),
+                        onTap: () => context.push('/incidencia/${i.id}'),
+                      ),
+                  ]),
+                ],
+              ),
       ),
       footer: PrimaryButton('Nuevo reporte', icon: Icons.add, onPressed: () => context.push('/negocio/incidencia')),
     );
@@ -147,6 +149,7 @@ class IncidentsListScreen extends ConsumerWidget {
 class IncidentDetailScreen extends ConsumerWidget {
   const IncidentDetailScreen({super.key, required this.incidentId});
   final String incidentId;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(sessionProvider);
@@ -155,40 +158,31 @@ class IncidentDetailScreen extends ConsumerWidget {
       builder: (i) {
         if (i == null) return const MissingData(title: 'Incidencia');
         if (s.isClient && i.customerId != s.customer?.id) return const MissingData(title: 'Incidencia', message: 'No tienes acceso a este reporte.');
+        final tone = incidentTone(i.status);
         return EnScaffold(
           title: 'Incidencia ${i.folio}',
           subtitle: i.kind,
           back: true,
+          badge: StatusBadge(i.status.label, tone: tone),
           children: [
-            Row(children: [Expanded(child: StatusBadge(i.status.label, tone: incidentTone(i.status))), Text(dateTime(i.createdAt))]),
-            StateCard(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                if (i.orderFolio != null) KvRow('Pedido', i.orderFolio!),
-                if (i.productName != null) KvRow('Producto', i.productName!),
-                KvRow('Origen', i.source == IncidentSource.client ? 'Reporte del negocio' : 'Carga del conductor'),
-                const SizedBox(height: 6),
-                Text(i.description),
-              ]),
-            ),
-            const SectionTitle('Seguimiento'),
-            for (final u in i.updates)
-              StateCard(
-                child: Row(children: [
-                  Icon(incidentTone(u.status).icon, color: incidentTone(u.status).fg),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(u.status.label, style: const TextStyle(fontWeight: FontWeight.w700)),
-                      if (u.note.isNotEmpty) Text(u.note, style: const TextStyle(fontSize: 12.5)),
-                      Text(dateTime(u.at), style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                    ]),
-                  ),
-                ]),
-              ),
-            const SectionTitle('Fotografías'),
+            ListGroup(children: [
+              if (i.orderFolio != null) ListRow(leading: const Icon(Icons.receipt_long_outlined), title: 'Pedido', subtitle: i.orderFolio, onTap: i.orderId != null && s.isClient ? () => context.push('/pedido/${i.orderId}') : null),
+              if (i.productName != null) ListRow(leading: const Icon(Icons.inventory_2_outlined), title: 'Producto', subtitle: i.productName, chevron: false),
+              ListRow(leading: const Icon(Icons.flag_outlined), title: 'Origen', subtitle: i.source == IncidentSource.client ? 'Reporte del negocio' : 'Carga del conductor', chevron: false),
+              ListRow(leading: const Icon(Icons.notes), title: 'Descripción', subtitle: i.description, chevron: false),
+            ]),
+            SectionTitle('Seguimiento'),
+            ListGroup(children: [
+              for (final u in i.updates.reversed)
+                ListRow(
+                  leading: Icon(incidentTone(u.status).icon, color: incidentTone(u.status).fg),
+                  title: u.status.label,
+                  subtitle: '${u.note.isEmpty ? '' : '${u.note}\n'}${dateTime(u.at)}',
+                  chevron: false,
+                ),
+            ]),
+            SectionTitle('Fotografías'),
             EvidenceGallery(i.evidence),
-            if (i.orderId != null && s.isClient)
-              OutlinedButton.icon(onPressed: () => context.push('/pedido/${i.orderId}'), icon: const Icon(Icons.receipt_long), label: const Text('Ver pedido')),
           ],
         );
       },
