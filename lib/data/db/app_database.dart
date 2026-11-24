@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
 import '../../core/utils/ids.dart';
+import 'platform/db_factory.dart';
 import 'schema.dart';
 
 /// Reloj inyectable (las pruebas controlan expiraciones y fechas).
@@ -37,11 +38,11 @@ class AppDatabase {
 
   static const fileName = 'enruta.db';
 
-  static Future<String> defaultPath() async => p.join(await getDatabasesPath(), fileName);
+  static Future<String> defaultPath() async => p.join(await platformDatabaseFactory().getDatabasesPath(), fileName);
 
   /// Abre (o crea) la base y aplica migraciones versionadas.
   static Future<AppDatabase> open({DatabaseFactory? factory, String? path, AppClock clock = const AppClock()}) async {
-    final f = factory ?? databaseFactory;
+    final f = factory ?? platformDatabaseFactory();
     final dbPath = path ?? await defaultPath();
     final db = await f.openDatabase(
       dbPath,
@@ -50,13 +51,18 @@ class AppDatabase {
         onConfigure: (db) async => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: (db, version) async {
           final batch = db.batch();
-          for (final s in schemaV2) {
+          for (final s in [...schemaV2, ...schemaV3]) {
             batch.execute(s);
           }
           await batch.commit(noResult: true);
         },
         onUpgrade: (db, from, to) async {
           if (from < 2) await _migrate1to2(db, clock);
+          if (from < 3) {
+            for (final s in schemaV3) {
+              await db.execute(s);
+            }
+          }
         },
       ),
     );

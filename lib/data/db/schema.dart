@@ -3,7 +3,17 @@
 /// v1: versión original de la app, solo `sync_queue` (cola en memoria persistida).
 /// v2: modelo operativo completo. La migración 1→2 conserva las operaciones de
 ///     `sync_queue` copiándolas a `outbox` antes de eliminar la tabla antigua.
-const schemaVersion = 2;
+/// v3: `file_blobs` para guardar fotos y firmas dentro de SQLite cuando la
+///     plataforma no tiene sistema de archivos (web).
+const schemaVersion = 3;
+
+const schemaV3 = [
+  '''CREATE TABLE file_blobs(
+    rel_path TEXT PRIMARY KEY,
+    bytes BLOB NOT NULL,
+    created_at INTEGER NOT NULL
+  )''',
+];
 
 /// DDL de la versión 1 (se usa en pruebas de migración y para documentarla).
 const schemaV1 = [

@@ -73,7 +73,7 @@ void main() {
     expect(jsonDecode(rows.first['payload']! as String)['stop'], 4);
     expect(rows.first['attempts'], 2);
     final tables = (await db.db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'")).map((e) => e['name']).toSet();
-    expect(tables, containsAll(['orders', 'deliveries', 'payments', 'closings', 'outbox']));
+    expect(tables, containsAll(['orders', 'deliveries', 'payments', 'closings', 'outbox', 'file_blobs']));
     expect(tables.contains('sync_queue'), isFalse);
     await db.close();
     await dir.delete(recursive: true);

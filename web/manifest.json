@@ -1,11 +1,11 @@
 {
-    "name": "enruta_transportistas",
-    "short_name": "enruta_transportistas",
+    "name": "EnRuta",
+    "short_name": "EnRuta",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#0B2F52",
+    "theme_color": "#0B2F52",
+    "description": "Rutas, entregas, cobranza e inventario.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

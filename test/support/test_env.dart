@@ -27,7 +27,7 @@ class TestEnv {
   TestEnv._(this.dir, this.db, this.files, this.clock);
   final Directory dir;
   AppDatabase db;
-  final FileStore files;
+  final IoFileStore files;
   final FixedClock clock;
 
   static Future<TestEnv> create({bool seed = true, Directory? reuseDir, DateTime? now}) async {
@@ -35,7 +35,7 @@ class TestEnv {
     final dir = reuseDir ?? await Directory.systemTemp.createTemp('enruta_test_');
     final clock = FixedClock(now ?? DateTime(2026, 11, 20, 9));
     final db = await AppDatabase.open(factory: databaseFactoryFfiNoIsolate, path: '${dir.path}/enruta.db', clock: clock);
-    final files = FileStore(Directory('${dir.path}/evidence'));
+    final files = IoFileStore(Directory('${dir.path}/evidence'));
     await files.ensure();
     final env = TestEnv._(dir, db, files, clock);
     if (seed) await DemoSeeder(db, testHasher).seedIfNeeded();
@@ -66,9 +66,7 @@ class TestEnv {
 
   /// “Toma” una foto real: escribe un JPEG mínimo y lo registra como borrador.
   Future<void> addPhoto(String draftKey) async {
-    final tmp = File('${dir.path}/tmp_${DateTime.now().microsecondsSinceEpoch}.jpg');
-    await tmp.writeAsBytes(fakeJpeg);
-    final rel = await files.importFile(tmp.path);
+    final rel = await files.writeBytes(fakeJpeg, ext: '.jpg');
     await evidence.addDraftFile(draftKey, EvidenceKind.photo, rel);
   }
 

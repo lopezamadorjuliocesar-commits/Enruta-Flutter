@@ -52,7 +52,10 @@ class SplashScreen extends ConsumerWidget {
                 ] else ...[
                   const Icon(Icons.error_outline, color: AppColors.amber, size: 40),
                   const SizedBox(height: 10),
-                  Text('No se pudo iniciar: ${s.label.toLowerCase()}.',
+                  const Text('No se pudo iniciar la aplicación',
+                      textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16)),
+                  const SizedBox(height: 4),
+                  Text('Paso: ${s.label.replaceAll('…', '')}',
                       textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
                   const SizedBox(height: 6),
                   Text('${s.error}', textAlign: TextAlign.center, maxLines: 4, overflow: TextOverflow.ellipsis,

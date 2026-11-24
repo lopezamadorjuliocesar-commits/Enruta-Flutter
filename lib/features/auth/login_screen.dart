@@ -52,16 +52,16 @@ class _LoginState extends ConsumerState<LoginScreen> {
       _error = null;
     });
     final pin = _pin;
+    // Se capturan antes de iniciar sesión: al cambiar la sesión el router
+    // redirige y esta pantalla se desmonta, pero la navegación debe ocurrir.
+    final router = GoRouter.of(context);
+    final db = ref.read(dbProvider);
     try {
+      final permissionsSeen = await db.getSetting('permissions.seen') != null;
+      final company = _company.text.trim().toUpperCase();
       final user = await ref.read(sessionProvider.notifier).login(_company.text, _user.text, pin);
-      await ref.read(dbProvider).setSetting('login.company', _company.text.trim().toUpperCase());
-      if (!mounted) return;
-      if (user.role == UserRole.driver) {
-        final seen = await ref.read(dbProvider).getSetting('permissions.seen');
-        if (mounted) context.go(seen == null ? '/permissions' : '/ruta');
-      } else {
-        context.go('/negocio/entregas');
-      }
+      await db.setSetting('login.company', company);
+      router.go(user.role == UserRole.driver ? (permissionsSeen ? '/ruta' : '/permissions') : '/negocio/entregas');
     } on AuthException catch (e) {
       if (!mounted) return;
       if (e.code == 'auth.unverified') {

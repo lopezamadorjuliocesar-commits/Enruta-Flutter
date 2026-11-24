@@ -92,8 +92,8 @@ class EvidenceRepository {
       if (!known.contains(name)) {
         // Solo huérfanos con antigüedad: evita borrar una foto recién copiada
         // cuyo registro aún no se inserta.
-        final stat = await files.fileFor(name).stat();
-        if (_d.clock.now().difference(stat.modified) > const Duration(minutes: 10)) {
+        final modified = await files.modifiedAt(name);
+        if (modified != null && _d.clock.now().difference(modified) > const Duration(minutes: 10)) {
           await files.delete(name);
           removed++;
         }

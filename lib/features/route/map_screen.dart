@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -46,7 +47,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         final next = stops.where((s) => s.status == StopStatus.pending).firstOrNull;
         final noCoords = stops.where((s) => !s.address.hasCoords).toList();
         final Widget map;
-        if (!AppConfig.hasMapbox) {
+        if (kIsWeb) {
+          map = const _MapPlaceholder(
+              icon: Icons.phone_android,
+              title: 'Mapa disponible en Android e iOS',
+              text: 'La cartografía usa un WebView que no existe en el navegador. En web continúa con la lista de paradas y la navegación externa.');
+        } else if (!AppConfig.hasMapbox) {
           map = const _MapPlaceholder(
               icon: Icons.key_off,
               title: 'Mapa no configurado',
@@ -61,7 +67,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           title: 'Mapa · Ruta ${w.routeCode}',
           subtitle: tracking.lastFix == null ? 'Ubicación del conductor no disponible' : 'Tu ubicación: ${tracking.lastFix!.describe()}',
           actions: [
-            if (AppConfig.hasMapbox && online != false)
+            if (!kIsWeb && AppConfig.hasMapbox && online != false)
               IconButton(tooltip: 'Calcular trazado vial', onPressed: () => _mapKey.currentState?.requestRoute(), icon: const Icon(Icons.route)),
           ],
           body: Column(children: [

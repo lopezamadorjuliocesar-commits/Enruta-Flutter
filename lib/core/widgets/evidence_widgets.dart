@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -125,6 +127,10 @@ class _PhotoEvidencePickerState extends ConsumerState<PhotoEvidencePicker> {
   }
 }
 
+/// Bytes de una evidencia (archivo en móvil, SQLite en web).
+final evidenceBytesProvider = FutureProvider.autoDispose.family<Uint8List?, String>(
+    (ref, relPath) => ref.watch(fileStoreProvider).readBytes(relPath));
+
 class _Thumb extends ConsumerWidget {
   const _Thumb({required this.file, this.onRemove});
   final EvidenceFile file;
@@ -132,26 +138,33 @@ class _Thumb extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final f = ref.watch(fileStoreProvider).fileFor(file.relPath);
+    final bytes = ref.watch(evidenceBytesProvider(file.relPath));
+    Widget image(double size, {bool full = false}) => switch (bytes) {
+          AsyncData(value: final b?) => Image.memory(b,
+              width: full ? null : size,
+              height: full ? null : size,
+              fit: full ? BoxFit.contain : BoxFit.cover,
+              cacheWidth: full ? null : 288,
+              errorBuilder: (_, _, _) => _Missing(size: size)),
+          AsyncLoading() => SizedBox(width: size, height: size, child: const Center(child: CircularProgressIndicator())),
+          _ => _Missing(size: size),
+        };
     return Stack(clipBehavior: Clip.none, children: [
       Semantics(
         image: true,
-        label: 'Fotografía de evidencia',
+        label: file.kind == EvidenceKind.signature ? 'Firma' : 'Fotografía de evidencia',
         child: InkWell(
           onTap: () => showDialog<void>(
             context: context,
             builder: (d) => Dialog(
               insetPadding: const EdgeInsets.all(12),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Flexible(child: InteractiveViewer(child: Image.file(f, errorBuilder: (_, _, _) => const _Missing(size: 200)))),
+                Flexible(child: InteractiveViewer(child: image(200, full: true))),
                 TextButton(onPressed: () => Navigator.pop(d), child: const Text('Cerrar')),
               ]),
             ),
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Image.file(f, width: 96, height: 96, fit: BoxFit.cover, cacheWidth: 288, errorBuilder: (_, _, _) => const _Missing(size: 96)),
-          ),
+          child: ClipRRect(borderRadius: BorderRadius.circular(12), child: image(96)),
         ),
       ),
       if (onRemove != null)

@@ -40,7 +40,7 @@ class CameraPhotoService implements PhotoService {
         requestFullMetadata: false,
       );
       if (x == null) return null;
-      return await _files.importFile(x.path);
+      return await _files.writeBytes(await x.readAsBytes(), ext: '.jpg');
     } on PlatformException catch (e) {
       if (e.code.contains('access_denied') || e.code.contains('permission')) {
         throw const PhotoException(PhotoError.permissionDenied, 'Sin permiso de cámara. Actívalo en Ajustes para tomar fotografías.');
@@ -51,12 +51,12 @@ class CameraPhotoService implements PhotoService {
 
   @override
   Future<String?> recoverLost() async {
-    if (defaultTargetPlatform != TargetPlatform.android) return null;
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return null;
     try {
       final r = await _picker.retrieveLostData();
       final f = r.file ?? r.files?.firstOrNull;
       if (r.isEmpty || f == null) return null;
-      return await _files.importFile(f.path);
+      return await _files.writeBytes(await f.readAsBytes(), ext: '.jpg');
     } on PlatformException {
       return null;
     }

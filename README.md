@@ -75,6 +75,36 @@ flutter build ios --release --dart-define-from-file=config/env.json
 > del código, pero sigue en el historial de git: **revócalo o rótalo** en la
 > cuenta de Mapbox y restringe el nuevo token por URL/app.
 
+### Ejecutar en el navegador (Flutter Web)
+
+La versión web usa SQLite compilado a WebAssembly (`web/sqlite3.wasm`) en un
+*shared worker* (`web/sqflite_sw.js`), con los datos persistidos en IndexedDB del
+navegador. Ambos archivos están versionados; si actualizas `sqflite_common_ffi_web`,
+regenéralos con:
+
+```bash
+dart run sqflite_common_ffi_web:setup
+```
+
+```bash
+flutter run -d chrome --dart-define-from-file=config/env.json
+```
+
+Diferencias en web (por limitaciones de la plataforma, no simuladas):
+
+- Fotos y firmas se guardan dentro de SQLite (tabla `file_blobs`), no en archivos.
+- El mapa Mapbox (WebView) no está disponible: se muestra un aviso y la operación
+  sigue con la lista de paradas y la navegación externa.
+- La sincronización HTTP no se activa en web (usa `dart:io`); los datos quedan en
+  el navegador.
+- El PIN usa 15 000 iteraciones de PBKDF2 (sin isolates en web).
+- “Abrir ajustes” no existe en el navegador: los permisos los concede el propio navegador.
+- CanvasKit se sirve desde la app (`web/flutter_bootstrap.js`), así que la app
+  arranca sin internet; la fuente Roboto la descarga Flutter de Google la primera
+  vez (sin red se usa la tipografía de respaldo).
+- Cada navegador/perfil tiene su propia base: los datos no se comparten con los
+  teléfonos.
+
 ## Cuentas y datos de demostración
 
 Al primer arranque se inserta (una sola vez) la empresa ficticia

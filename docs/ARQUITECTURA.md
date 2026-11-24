@@ -182,7 +182,11 @@ Tipos emitidos: `access_request.create`, `user.profile`, `customer.contact`,
   Package Manager; el `Podfile` incluye las macros equivalentes para CocoaPods.
 - **Seguimiento:** solo en primer plano (no hay modos en segundo plano). Si el
   sistema suspende o cierra la app, el registro del recorrido se detiene.
-- Web, Linux y escritorio no son objetivos: `sqflite` no los soporta.
+- **Web:** `sqflite_common_ffi_web` (SQLite WASM + IndexedDB) seleccionado con
+  import condicional (`lib/data/db/platform/`). Evidencias en `file_blobs`
+  (`DbFileStore`); en móvil se usan archivos (`IoFileStore`). Sin mapa (WebView) ni
+  sincronización HTTP. Esquema v3 agrega `file_blobs` (migración 2→3).
+- Linux y escritorio no son objetivos.
 
 ## Material
 

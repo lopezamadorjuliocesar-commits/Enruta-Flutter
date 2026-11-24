@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -36,10 +37,20 @@ final databaseOpenerProvider = Provider<Future<AppDatabase> Function()>((_) => (
 final evidenceDirProvider = Provider<Future<Directory> Function()>(
     (_) => () async => Directory(p.join((await getApplicationDocumentsDirectory()).path, 'evidence')));
 
-final pinHasherProvider = Provider<PinHasher>((_) => const PinHasher());
+/// En web no hay isolates: el hash corre en el hilo principal con menos
+/// iteraciones (las iteraciones quedan guardadas en cada hash).
+final pinHasherProvider = Provider<PinHasher>((_) => kIsWeb ? const PinHasher(iterations: 15000, useIsolate: false) : const PinHasher());
 
+/// Almacén de evidencias por plataforma: archivos (móvil) o SQLite (web).
+final fileStoreOpenerProvider = Provider<Future<FileStore> Function(AppDatabase)>((ref) => (db) async {
+      if (kIsWeb) return DbFileStore(db);
+      return IoFileStore(await ref.read(evidenceDirProvider)());
+    });
+
+/// `HttpSyncTransport` usa dart:io: en web la sincronización queda sin servidor
+/// (los datos se conservan en el navegador).
 final syncTransportProvider = Provider<SyncTransport>(
-    (_) => AppConfig.hasApi ? HttpSyncTransport(AppConfig.apiBaseUrl) : const NoBackendTransport());
+    (_) => AppConfig.hasApi && !kIsWeb ? HttpSyncTransport(AppConfig.apiBaseUrl) : const NoBackendTransport());
 
 final locationServiceProvider = Provider<LocationService>((_) => const GeolocatorLocationService());
 final permissionServiceProvider = Provider<PermissionService>((_) => const SystemPermissionService());
@@ -105,7 +116,7 @@ class BootstrapNotifier extends Notifier<BootState> {
         state = state.copyWith(db: db);
       }
       state = state.copyWith(step: 1, label: 'Preparando almacenamiento de evidencias…');
-      final files = FileStore(await ref.read(evidenceDirProvider)());
+      final files = await ref.read(fileStoreOpenerProvider)(db);
       await files.ensure();
       state = state.copyWith(files: files);
 
@@ -130,7 +141,8 @@ class BootstrapNotifier extends Notifier<BootState> {
 
       state = state.copyWith(step: 5, label: 'Listo', done: true, onboardingDone: onboarding);
     } catch (e) {
-      state = state.copyWith(error: e, label: 'No se pudo iniciar');
+      // Se conserva la etiqueta del paso que falló para mostrar dónde ocurrió.
+      state = state.copyWith(error: e);
     } finally {
       _running = false;
     }
