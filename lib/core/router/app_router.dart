@@ -57,10 +57,11 @@ class _NavShell extends ConsumerWidget {
     var badge = 0;
     if (session.isClient) {
       final id = session.customer?.id;
-      if (id != null)
+      if (id != null) {
         badge = (ref.watch(customerOrdersProvider(id)).value ?? const [])
             .where((o) => o.status.isActive)
             .length;
+      }
     } else if (session.isDriver) {
       final w = ref.watch(openWorkdayProvider).value;
       if (w != null && w.status == WorkdayStatus.inRoute) {
@@ -213,16 +214,18 @@ final routerProvider = Provider<GoRouter>((ref) {
     final loc = s.matchedLocation;
     if (!boot.done) return loc == '/splash' ? null : '/splash';
     final session = ref.read(sessionProvider);
-    if (loc == '/splash')
+    if (loc == '/splash') {
       return session.signedIn
           ? homeFor(session)
           : (boot.onboardingDone ? '/login' : '/welcome');
+    }
     if (loc == '/dev') return AppConfig.devToolsEnabled ? null : '/login';
     if (!session.signedIn) return _publicRoutes.contains(loc) ? null : '/login';
     if (_publicRoutes.contains(loc)) return homeFor(session);
     final shared = _sharedRoutes.any((p) => loc == p || loc.startsWith(p));
-    if (session.isClient)
+    if (session.isClient) {
       return loc.startsWith('/negocio') || shared ? null : '/negocio/entregas';
+    }
     if (loc.startsWith('/negocio')) return '/ruta';
     return null;
   }

@@ -7,13 +7,21 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'support/app_harness.dart';
 
 void main() {
-  testWidgets('Arranque nuevo muestra bienvenida y la bandera se guarda', (tester) async {
+  testWidgets('Arranque nuevo muestra bienvenida y la bandera se guarda', (
+    tester,
+  ) async {
     final h = await pumpApp(tester);
     expect(h.location, '/welcome');
     expect(find.text('Para conductores'), findsOneWidget);
     await tapText(tester, 'Omitir');
     expect(h.location, '/login');
-    expect(await drive(tester, () => h.container.read(dbProvider).getSetting('onboarding.done')), '1');
+    expect(
+      await drive(
+        tester,
+        () => h.container.read(dbProvider).getSetting('onboarding.done'),
+      ),
+      '1',
+    );
   });
 
   testWidgets('Login inválido muestra error y no avanza', (tester) async {
@@ -30,7 +38,9 @@ void main() {
     expect(h.container.read(sessionProvider).signedIn, isFalse);
   });
 
-  testWidgets('Conductor: permisos reales, ruta y separación de roles', (tester) async {
+  testWidgets('Conductor: permisos reales, ruta y separación de roles', (
+    tester,
+  ) async {
     final h = await pumpApp(tester);
     await loginAs(tester, h, 'Conductor · chofer');
     expect(h.location, '/permissions');
@@ -51,31 +61,42 @@ void main() {
     expect(find.text('Mapa no configurado'), findsOneWidget);
   });
 
-  testWidgets('Recorrido A en pantalla: cliente agrega al carrito, confirma y consulta su pedido', (tester) async {
-    final h = await pumpApp(tester);
-    await loginAs(tester, h, 'Negocio · esperanza');
-    expect(h.location, '/negocio/entregas');
-    expect(find.text('Mis pedidos'), findsWidgets);
-    // El negocio no puede abrir pantallas del conductor.
-    h.go('/corte');
-    await settle(tester);
-    expect(h.location, '/negocio/entregas');
-    await tapText(tester, 'Pedir');
-    expect(h.location, '/negocio/pedir');
-    await tapFinder(tester, find.byTooltip(RegExp('^Agregar ')));
-    expect(find.textContaining('Ver carrito · 1 u'), findsOneWidget);
-    await tapFinder(tester, find.textContaining('Ver carrito'));
-    expect(h.location, '/negocio/carrito');
-    await tapFinder(tester, find.textContaining('Confirmar pedido'));
-    expect(h.location, startsWith('/pedido/'));
-    expect(find.text('Pedido PED-000005'), findsOneWidget);
-    expect(find.text('Recibido'), findsWidgets);
-    // Persistencia: el carrito quedó vacío y el pedido existe en SQLite.
-    final rows = await drive(tester, () => h.container.read(dbProvider).db.query('orders', where: 'folio = ?', whereArgs: ['PED-000005']));
-    expect(rows, hasLength(1));
-  });
+  testWidgets(
+    'Recorrido A en pantalla: cliente agrega al carrito, confirma y consulta su pedido',
+    (tester) async {
+      final h = await pumpApp(tester);
+      await loginAs(tester, h, 'Negocio · esperanza');
+      expect(h.location, '/negocio/entregas');
+      expect(find.text('Mis pedidos'), findsWidgets);
+      // El negocio no puede abrir pantallas del conductor.
+      h.go('/corte');
+      await settle(tester);
+      expect(h.location, '/negocio/entregas');
+      await tapText(tester, 'Pedir');
+      expect(h.location, '/negocio/pedir');
+      await tapFinder(tester, find.byTooltip(RegExp('^Agregar ')));
+      expect(find.textContaining('Ver carrito · 1 u'), findsOneWidget);
+      await tapFinder(tester, find.textContaining('Ver carrito'));
+      expect(h.location, '/negocio/carrito');
+      await tapFinder(tester, find.textContaining('Confirmar pedido'));
+      expect(h.location, startsWith('/pedido/'));
+      expect(find.text('Pedido PED-000005'), findsOneWidget);
+      expect(find.text('Recibido'), findsWidgets);
+      // Persistencia: el carrito quedó vacío y el pedido existe en SQLite.
+      final rows = await drive(
+        tester,
+        () => h.container
+            .read(dbProvider)
+            .db
+            .query('orders', where: 'folio = ?', whereArgs: ['PED-000005']),
+      );
+      expect(rows, hasLength(1));
+    },
+  );
 
-  testWidgets('Permiso de cámara denegado: mensaje y acceso a Ajustes', (tester) async {
+  testWidgets('Permiso de cámara denegado: mensaje y acceso a Ajustes', (
+    tester,
+  ) async {
     final h = await pumpApp(tester, denyCamera: true);
     await loginAs(tester, h, 'Conductor · chofer');
     await tapText(tester, 'Continuar');
@@ -87,14 +108,22 @@ void main() {
     expect(h.permissions.settingsOpened, 1);
   });
 
-  testWidgets('Fallo al iniciar muestra error y permite reintentar', (tester) async {
+  testWidgets('Fallo al iniciar muestra error y permite reintentar', (
+    tester,
+  ) async {
     var calls = 0;
     late String path;
-    final h = await pumpApp(tester, opener: () async {
-      calls++;
-      if (calls == 1) throw Exception('disco no disponible');
-      return AppDatabase.open(factory: databaseFactoryFfiNoIsolate, path: path);
-    });
+    final h = await pumpApp(
+      tester,
+      opener: () async {
+        calls++;
+        if (calls == 1) throw Exception('disco no disponible');
+        return AppDatabase.open(
+          factory: databaseFactoryFfiNoIsolate,
+          path: path,
+        );
+      },
+    );
     path = '${h.dir.path}/retry.db';
     expect(find.text('Reintentar'), findsOneWidget);
     await tester.tap(find.text('Reintentar'));
@@ -102,16 +131,42 @@ void main() {
     expect(h.location, '/welcome');
   });
 
-  testWidgets('Foto recuperada si Android cerró la app con la cámara abierta', (tester) async {
+  testWidgets('Foto recuperada si Android cerró la app con la cámara abierta', (
+    tester,
+  ) async {
     late String path;
-    final h = await pumpApp(tester, lostPhoto: true, opener: () async {
-      final db = await AppDatabase.open(factory: databaseFactoryFfiNoIsolate, path: path);
-      await db.setSetting('camera.pending_draft', 'delivery:parada-x');
-      return db;
-    }, pathSetter: (p) => path = p);
-    final rows = await drive(tester, () => h.container.read(dbProvider).db.query('evidence_files', where: 'owner_id = ?', whereArgs: ['delivery:parada-x']));
+    final h = await pumpApp(
+      tester,
+      lostPhoto: true,
+      opener: () async {
+        final db = await AppDatabase.open(
+          factory: databaseFactoryFfiNoIsolate,
+          path: path,
+        );
+        await db.setSetting('camera.pending_draft', 'delivery:parada-x');
+        return db;
+      },
+      pathSetter: (p) => path = p,
+    );
+    final rows = await drive(
+      tester,
+      () => h.container
+          .read(dbProvider)
+          .db
+          .query(
+            'evidence_files',
+            where: 'owner_id = ?',
+            whereArgs: ['delivery:parada-x'],
+          ),
+    );
     expect(rows, hasLength(1));
-    expect(await drive(tester, () => h.container.read(dbProvider).getSetting('camera.pending_draft')), isNull);
+    expect(
+      await drive(
+        tester,
+        () => h.container.read(dbProvider).getSetting('camera.pending_draft'),
+      ),
+      isNull,
+    );
   });
 
   group('Pantalla pequeña (320×568) con texto al 200 %', () {
@@ -127,12 +182,21 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('Ruta, carga e inventario del conductor sin desbordamientos', (tester) async {
+    testWidgets('Ruta, carga e inventario del conductor sin desbordamientos', (
+      tester,
+    ) async {
       final h = await pumpApp(tester, size: small, textScale: 2);
       await loginAs(tester, h, 'Conductor · chofer');
       await tapText(tester, 'Continuar');
       expect(tester.takeException(), isNull);
-      for (final path in ['/ruta', '/load', '/inventario', '/corte', '/sync', '/cuenta']) {
+      for (final path in [
+        '/ruta',
+        '/load',
+        '/inventario',
+        '/corte',
+        '/sync',
+        '/cuenta',
+      ]) {
         h.go(path);
         await settle(tester);
         expect(tester.takeException(), isNull, reason: path);
@@ -142,7 +206,11 @@ void main() {
     testWidgets('Portal del negocio sin desbordamientos', (tester) async {
       final h = await pumpApp(tester, size: small, textScale: 2);
       await loginAs(tester, h, 'Negocio · esperanza');
-      for (final path in ['/negocio/entregas', '/negocio/pedir', '/negocio/cuenta']) {
+      for (final path in [
+        '/negocio/entregas',
+        '/negocio/pedir',
+        '/negocio/cuenta',
+      ]) {
         h.go(path);
         await settle(tester);
         expect(tester.takeException(), isNull, reason: path);

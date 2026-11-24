@@ -23,53 +23,111 @@ class SplashScreen extends ConsumerWidget {
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(32),
               child: FadeSlideIn(
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const TenantBadge('', size: 96),
-                const SizedBox(height: 20),
-                const Text('EnRuta', style: TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w900)),
-                const SizedBox(height: 4),
-                const Text('Rutas, entregas y cobranza', style: TextStyle(color: AppColors.textOnDark)),
-                const SizedBox(height: 40),
-                if (s.error == null) ...[
-                  Semantics(
-                    label: 'Progreso de inicio',
-                    value: '${(s.progress * 100).round()} %',
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: TweenAnimationBuilder<double>(
-                        tween: Tween(end: s.progress),
-                        duration: const Duration(milliseconds: 250),
-                        builder: (_, v, _) => LinearProgressIndicator(
-                          value: v,
-                          minHeight: 6,
-                          color: AppColors.amber,
-                          backgroundColor: Colors.white.withValues(alpha: .15),
-                        ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const TenantBadge('', size: 96),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'EnRuta',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 30,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(s.label, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textOnDark, fontSize: 13)),
-                ] else ...[
-                  const Icon(Icons.error_outline, color: AppColors.amber, size: 40),
-                  const SizedBox(height: 10),
-                  const Text('No se pudo iniciar la aplicación',
-                      textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16)),
-                  const SizedBox(height: 4),
-                  Text('Paso: ${s.label.replaceAll('…', '')}',
-                      textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 6),
-                  Text('${s.error}', textAlign: TextAlign.center, maxLines: 4, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: AppColors.textOnDark, fontSize: 12)),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: PrimaryButton('Reintentar', icon: Icons.refresh, onPressed: () => ref.read(bootstrapProvider.notifier).run()),
-                  ),
-                ],
-                const SizedBox(height: 40),
-                Text('Versión ${AppConfig.appVersion}', style: const TextStyle(color: AppColors.textOnDark, fontSize: 11)),
-              ]),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Rutas, entregas y cobranza',
+                      style: TextStyle(color: AppColors.textOnDark),
+                    ),
+                    const SizedBox(height: 40),
+                    if (s.error == null) ...[
+                      Semantics(
+                        label: 'Progreso de inicio',
+                        value: '${(s.progress * 100).round()} %',
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: TweenAnimationBuilder<double>(
+                            tween: Tween(end: s.progress),
+                            duration: const Duration(milliseconds: 250),
+                            builder: (_, v, _) => LinearProgressIndicator(
+                              value: v,
+                              minHeight: 6,
+                              color: AppColors.amber,
+                              backgroundColor: Colors.white.withValues(
+                                alpha: .15,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        s.label,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: AppColors.textOnDark,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ] else ...[
+                      const Icon(
+                        Icons.error_outline,
+                        color: AppColors.amber,
+                        size: 40,
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'No se pudo iniciar la aplicación',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Paso: ${s.label.replaceAll('…', '')}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${s.error}',
+                        textAlign: TextAlign.center,
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.textOnDark,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: PrimaryButton(
+                          'Reintentar',
+                          icon: Icons.refresh,
+                          onPressed: () =>
+                              ref.read(bootstrapProvider.notifier).run(),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 40),
+                    Text(
+                      'Versión ${AppConfig.appVersion}',
+                      style: const TextStyle(
+                        color: AppColors.textOnDark,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

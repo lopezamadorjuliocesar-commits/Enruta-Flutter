@@ -195,3 +195,11 @@ Flutter 3.47 deprecó `package:flutter/material.dart` en favor del paquete
 `material_ui` para compartir los mismos tipos (`MaterialApp`, `Theme`,
 `MaterialLocalizations`). `signature` y `mobile_scanner` todavía importan el
 Material del SDK solo para utilidades sin ancestros (colores/íconos).
+
+## Sistema de diseño de la interfaz
+
+- **Tokens** (`lib/core/theme/tokens.dart`): espaciado `Sp`, radios `Rd`, tamaños táctiles `Hit` (mínimo 48 dp, botón principal 56 dp), duraciones `Dur` (120/220/320 ms) y curvas `Crv`.
+- **Tema** (`app_theme.dart`): `AppTheme.of(client:, reducedMotion:)`. Conductor = azul marino + ámbar; negocio = esmeralda. Superficies planas con borde (sin sombras ni degradados); el acento se expresa con el color del borde. Los pares de texto/fondo se verifican con AA en `test/design_system_test.dart`.
+- **Componentes compartidos** (`lib/core/widgets/`): `EnScaffold` (encabezado de rol + zona segura + banner de sincronización + pie con la acción principal), `HeroPanel` (estado actual + siguiente acción), `StageStepper` (etapas de jornada y de pedido), `ListGroup`/`ListRow` (listas agrupadas en lugar de pilas de tarjetas), `StatusBadge` (icono + texto, nunca solo color), `InfoBanner`, `EmptyState`/`ErrorView`/`SkeletonList`/`AsyncBody` (carga, vacío, error y reintento).
+- **Movimiento** (`motion.dart`): `PressScale`, `FadeSlideIn`, `StateSwitcher`, `Reveal`, `ShakeOnChange`, fundido entre pestañas. Solo animaciones nativas de Flutter, sin animaciones continuas en mapa ni pantallas operativas. Con "reducir movimiento" del sistema (`MediaQuery.disableAnimations`) las duraciones pasan a cero y las transiciones de página son instantáneas.
+- **Accesibilidad**: contraste AA, objetivos ≥ 48 dp, etiquetas semánticas, texto escalable hasta 200 % (las filas pasan a disposición vertical) y pruebas en 320×568.

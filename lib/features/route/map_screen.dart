@@ -175,10 +175,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                                               ref,
                                               next,
                                             );
-                                            if (context.mounted)
+                                            if (context.mounted) {
                                               await context.push(
                                                 '/cliente?stop=${next.id}',
                                               );
+                                            }
                                           },
                                         )
                                       : PrimaryButton(

@@ -111,35 +111,43 @@ class SkeletonList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Semantics(
-        label: 'Cargando',
-        liveRegion: true,
-        child: ExcludeSemantics(
-          child: LayoutBuilder(builder: (c, box) {
-            // Solo las barras que caben en el espacio disponible.
-            final heights = <double>[];
-            var used = 2 * Sp.lg;
-            for (var i = 0; i < rows; i++) {
-              final h = i == 0 ? 96.0 : 64.0;
-              if (box.hasBoundedHeight && used + h + Sp.md > box.maxHeight) break;
-              used += h + Sp.md;
-              heights.add(h);
-            }
-            return _FitOrScroll(
-              child: Padding(
-                padding: const EdgeInsets.all(Sp.lg),
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
+    label: 'Cargando',
+    liveRegion: true,
+    child: ExcludeSemantics(
+      child: LayoutBuilder(
+        builder: (c, box) {
+          // Solo las barras que caben en el espacio disponible.
+          final heights = <double>[];
+          var used = 2 * Sp.lg;
+          for (var i = 0; i < rows; i++) {
+            final h = i == 0 ? 96.0 : 64.0;
+            if (box.hasBoundedHeight && used + h + Sp.md > box.maxHeight) break;
+            used += h + Sp.md;
+            heights.add(h);
+          }
+          return _FitOrScroll(
+            child: Padding(
+              padding: const EdgeInsets.all(Sp.lg),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
                   for (final h in heights)
                     Container(
                       height: h,
                       margin: const EdgeInsets.only(bottom: Sp.md),
-                      decoration: BoxDecoration(color: AppColors.border.withValues(alpha: .6), borderRadius: BorderRadius.circular(Rd.lg)),
+                      decoration: BoxDecoration(
+                        color: AppColors.border.withValues(alpha: .6),
+                        borderRadius: BorderRadius.circular(Rd.lg),
+                      ),
                     ),
-                ]),
+                ],
               ),
-            );
-          }),
-        ),
-      );
+            ),
+          );
+        },
+      ),
+    ),
+  );
 }
 
 /// Muestra carga, error o datos con un fundido breve entre estados; conserva

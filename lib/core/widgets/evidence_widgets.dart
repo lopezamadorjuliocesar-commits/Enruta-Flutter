@@ -54,10 +54,11 @@ class _PhotoEvidencePickerState extends ConsumerState<PhotoEvidencePicker> {
       final rel = await ref
           .read(photoServiceProvider)
           .capture(fromGallery: gallery);
-      if (rel != null)
+      if (rel != null) {
         await ref
             .read(evidenceRepoProvider)
             .addDraftFile(widget.draftKey, EvidenceKind.photo, rel);
+      }
     } on PhotoException catch (e) {
       setState(() {
         _error = e.message;
@@ -288,11 +289,12 @@ class EvidenceGallery extends StatelessWidget {
   final List<EvidenceFile> files;
   @override
   Widget build(BuildContext context) {
-    if (files.isEmpty)
+    if (files.isEmpty) {
       return const Text(
         'Sin evidencias.',
         style: TextStyle(color: AppColors.textSubtitle),
       );
+    }
     return Wrap(
       spacing: 10,
       runSpacing: 10,

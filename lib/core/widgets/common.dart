@@ -242,8 +242,9 @@ class SyncBanner extends ConsumerWidget {
     String? trailing;
     VoidCallback? onTap;
     if (session.isClient) {
-      if (offline)
+      if (offline) {
         text = 'Sin conexión · tus cambios se guardan en este teléfono';
+      }
     } else {
       final pending = s.counts.pending;
       if (offline || pending > 0 || s.counts.rejected > 0) {

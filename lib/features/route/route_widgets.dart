@@ -219,8 +219,9 @@ Future<void> openNavigation(BuildContext context, Address a) async {
   } on Exception {
     ok = false;
   }
-  if (!ok && context.mounted)
+  if (!ok && context.mounted) {
     snack(context, 'No se pudo abrir la aplicación de mapas.', error: true);
+  }
 }
 
 /// Pantalla de “faltan datos” para rutas abiertas sin su parámetro requerido.

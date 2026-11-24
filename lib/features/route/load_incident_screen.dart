@@ -45,11 +45,12 @@ class _LoadIncidentState extends ConsumerState<LoadIncidentScreen> {
     return AsyncBody(
       value: wd,
       builder: (w) {
-        if (w == null)
+        if (w == null) {
           return const MissingData(
             title: 'Incidencia de carga',
             message: 'No tienes una jornada abierta.',
           );
+        }
         final lines =
             ref.watch(loadLinesProvider(w.id)).value ?? const <LoadLine>[];
         final draftKey = 'load-incident:$_key';

@@ -28,11 +28,12 @@ class LoadConfirmScreen extends ConsumerWidget {
     return AsyncBody(
       value: wd,
       builder: (w) {
-        if (w == null)
+        if (w == null) {
           return const MissingData(
             title: 'Carga',
             message: 'No tienes una jornada abierta.',
           );
+        }
         return _LoadBody(w);
       },
     );
@@ -62,8 +63,9 @@ class _LoadBodyState extends ConsumerState<_LoadBody> {
 
   @override
   void dispose() {
-    if (_debounce?.isActive ?? false)
+    if (_debounce?.isActive ?? false) {
       _repo.saveStartKm(widget.w.id, int.tryParse(_km.text));
+    }
     _debounce?.cancel();
     _km.dispose();
     super.dispose();
@@ -208,7 +210,9 @@ class _LoadBodyState extends ConsumerState<_LoadBody> {
                       editable: editable,
                       onCount: (v) => repo.setCount(l.id, v),
                       onReason: (r) => repo.setLoadReason(l.id, r),
-                      onIncident: () => context.push('/incidencia-carga?product=${l.product.id}'),
+                      onIncident: () => context.push(
+                        '/incidencia-carga?product=${l.product.id}',
+                      ),
                     ),
                 ],
               ),
@@ -239,8 +243,9 @@ class _LoadBodyState extends ConsumerState<_LoadBody> {
                         try {
                           await _confirm(vehicle);
                         } on DomainException catch (e) {
-                          if (context.mounted)
+                          if (context.mounted) {
                             snack(context, e.message, error: true);
+                          }
                         }
                       }
                     : null,
@@ -260,7 +265,13 @@ class _LoadBodyState extends ConsumerState<_LoadBody> {
 /// Producto de la carga: esperado vs contado en una sola fila. Un toque en
 /// “Conté N” confirma la cantidad esperada; si hay diferencia, pide el motivo.
 class _LoadRow extends StatelessWidget {
-  const _LoadRow({required this.line, required this.editable, required this.onCount, required this.onReason, required this.onIncident});
+  const _LoadRow({
+    required this.line,
+    required this.editable,
+    required this.onCount,
+    required this.onReason,
+    required this.onIncident,
+  });
   final LoadLine line;
   final bool editable;
   final ValueChanged<int> onCount;
@@ -273,38 +284,88 @@ class _LoadRow extends StatelessWidget {
     final diff = (l.countedQty ?? 0) - l.expectedQty;
     return AnimatedContainer(
       duration: motion(context, Dur.base),
-      color: l.hasDiff ? AppColors.errorBg.withValues(alpha: .35) : Colors.transparent,
+      color: l.hasDiff
+          ? AppColors.errorBg.withValues(alpha: .35)
+          : Colors.transparent,
       padding: const EdgeInsets.all(Sp.lg),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(l.product.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-              Text('${l.product.sku} · Esperado ${l.expectedQty}', style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
-            ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l.product.name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                    Text(
+                      '${l.product.sku} · Esperado ${l.expectedQty}',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: Sp.sm),
+              if (l.pending)
+                const StatusBadge('Sin contar', tone: Tone.warning)
+              else if (l.hasDiff)
+                StatusBadge(
+                  'Diferencia ${diff > 0 ? '+' : ''}$diff',
+                  tone: Tone.error,
+                )
+              else
+                const StatusBadge('Correcto', tone: Tone.success),
+            ],
           ),
-          const SizedBox(width: Sp.sm),
-          if (l.pending)
-            const StatusBadge('Sin contar', tone: Tone.warning)
-          else if (l.hasDiff)
-            StatusBadge('Diferencia ${diff > 0 ? '+' : ''}$diff', tone: Tone.error)
-          else
-            const StatusBadge('Correcto', tone: Tone.success),
-        ]),
-        const SizedBox(height: Sp.sm),
-        Wrap(alignment: WrapAlignment.spaceBetween, crossAxisAlignment: WrapCrossAlignment.center, spacing: Sp.md, runSpacing: Sp.sm, children: [
-          if (l.pending && editable)
-            OutlinedButton.icon(onPressed: () => onCount(l.expectedQty), icon: const Icon(Icons.check), label: Text('Conté ${l.expectedQty}'))
-          else
-            const SizedBox.shrink(),
-          QtyStepper(label: 'Contado de ${l.product.name}', value: l.countedQty ?? 0, max: 9999, onChanged: editable ? onCount : null),
-        ]),
-        if (l.hasDiff) ...[
           const SizedBox(height: Sp.sm),
-          ReasonPicker(reasons: Reasons.load, value: l.reason, onChanged: editable ? onReason : (_) {}),
-          if (editable) TextButton.icon(onPressed: onIncident, icon: const Icon(Icons.report_outlined), label: const Text('Reportar incidencia de este producto')),
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: Sp.md,
+            runSpacing: Sp.sm,
+            children: [
+              if (l.pending && editable)
+                OutlinedButton.icon(
+                  onPressed: () => onCount(l.expectedQty),
+                  icon: const Icon(Icons.check),
+                  label: Text('Conté ${l.expectedQty}'),
+                )
+              else
+                const SizedBox.shrink(),
+              QtyStepper(
+                label: 'Contado de ${l.product.name}',
+                value: l.countedQty ?? 0,
+                max: 9999,
+                onChanged: editable ? onCount : null,
+              ),
+            ],
+          ),
+          if (l.hasDiff) ...[
+            const SizedBox(height: Sp.sm),
+            ReasonPicker(
+              reasons: Reasons.load,
+              value: l.reason,
+              onChanged: editable ? onReason : (_) {},
+            ),
+            if (editable)
+              TextButton.icon(
+                onPressed: onIncident,
+                icon: const Icon(Icons.report_outlined),
+                label: const Text('Reportar incidencia de este producto'),
+              ),
+          ],
         ],
-      ]),
+      ),
     );
   }
 }

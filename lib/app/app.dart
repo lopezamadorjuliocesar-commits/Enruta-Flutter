@@ -15,8 +15,13 @@ class EnRutaApp extends ConsumerStatefulWidget {
   ConsumerState<EnRutaApp> createState() => _EnRutaAppState();
 }
 
-class _EnRutaAppState extends ConsumerState<EnRutaApp> with WidgetsBindingObserver {
-  late bool _reduceMotion = WidgetsBinding.instance.platformDispatcher.accessibilityFeatures.disableAnimations;
+class _EnRutaAppState extends ConsumerState<EnRutaApp>
+    with WidgetsBindingObserver {
+  late bool _reduceMotion = WidgetsBinding
+      .instance
+      .platformDispatcher
+      .accessibilityFeatures
+      .disableAnimations;
 
   @override
   void initState() {
@@ -27,7 +32,11 @@ class _EnRutaAppState extends ConsumerState<EnRutaApp> with WidgetsBindingObserv
   @override
   void didChangeAccessibilityFeatures() {
     // “Reducir movimiento” / “Quitar animaciones”: el tema cambia a transiciones instantáneas.
-    final v = WidgetsBinding.instance.platformDispatcher.accessibilityFeatures.disableAnimations;
+    final v = WidgetsBinding
+        .instance
+        .platformDispatcher
+        .accessibilityFeatures
+        .disableAnimations;
     if (v != _reduceMotion) setState(() => _reduceMotion = v);
   }
 
@@ -40,7 +49,8 @@ class _EnRutaAppState extends ConsumerState<EnRutaApp> with WidgetsBindingObserv
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Al volver al primer plano se intenta enviar la cola (solo si hay servidor y red).
-    if (state == AppLifecycleState.resumed && ref.read(bootstrapProvider).done) {
+    if (state == AppLifecycleState.resumed &&
+        ref.read(bootstrapProvider).done) {
       unawaited(ref.read(syncControllerProvider.notifier).flush());
     }
   }

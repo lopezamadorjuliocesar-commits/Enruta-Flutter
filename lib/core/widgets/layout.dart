@@ -127,14 +127,42 @@ class ListRow extends StatelessWidget {
     final showChevron = chevron ?? (onTap != null && trailing == null);
     // Con texto muy grande el valor de la derecha pasa a una segunda línea
     // para que el título conserve ancho legible.
-    final stackTrailing = trailing != null && MediaQuery.textScalerOf(context).scale(14) / 14 > 1.4;
-    final text = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(title, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontSize: 15)),
-      if (subtitle != null) Padding(padding: const EdgeInsets.only(top: 2), child: Text(subtitle!, style: Theme.of(context).textTheme.bodySmall)),
-      if (meta != null) Padding(padding: const EdgeInsets.only(top: Sp.sm), child: meta),
-      if (stackTrailing) Padding(padding: const EdgeInsets.only(top: Sp.sm), child: trailing),
-    ]);
-    final chev = showChevron ? const Padding(padding: EdgeInsets.only(left: Sp.xs), child: Icon(Icons.chevron_right, color: AppColors.textSecondary)) : null;
+    final stackTrailing =
+        trailing != null &&
+        MediaQuery.textScalerOf(context).scale(14) / 14 > 1.4;
+    final text = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(fontSize: 15),
+        ),
+        if (subtitle != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              subtitle!,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        if (meta != null)
+          Padding(
+            padding: const EdgeInsets.only(top: Sp.sm),
+            child: meta,
+          ),
+        if (stackTrailing)
+          Padding(
+            padding: const EdgeInsets.only(top: Sp.sm),
+            child: trailing,
+          ),
+      ],
+    );
+    final chev = showChevron
+        ? const Padding(
+            padding: EdgeInsets.only(left: Sp.xs),
+            child: Icon(Icons.chevron_right, color: AppColors.textSecondary),
+          )
+        : null;
     return Container(
       color: emphasis ? AppColors.amberSoft.withValues(alpha: .55) : null,
       child: InkWell(
@@ -142,13 +170,25 @@ class ListRow extends StatelessWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 56),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: Sp.lg, vertical: Sp.md),
-            child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-              if (leading != null) ...[leading!, const SizedBox(width: Sp.md)],
-              Expanded(child: text),
-              if (trailing != null && !stackTrailing) ...[const SizedBox(width: Sp.md), trailing!],
-              ?chev,
-            ]),
+            padding: const EdgeInsets.symmetric(
+              horizontal: Sp.lg,
+              vertical: Sp.md,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (leading != null) ...[
+                  leading!,
+                  const SizedBox(width: Sp.md),
+                ],
+                Expanded(child: text),
+                if (trailing != null && !stackTrailing) ...[
+                  const SizedBox(width: Sp.md),
+                  trailing!,
+                ],
+                ?chev,
+              ],
+            ),
           ),
         ),
       ),

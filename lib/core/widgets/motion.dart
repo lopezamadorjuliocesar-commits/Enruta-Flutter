@@ -144,8 +144,9 @@ class _ShakeOnChangeState extends State<ShakeOnChange>
   @override
   void didUpdateWidget(ShakeOnChange old) {
     super.didUpdateWidget(old);
-    if (old.trigger != widget.trigger && !reduceMotion(context))
+    if (old.trigger != widget.trigger && !reduceMotion(context)) {
       _c.forward(from: 0);
+    }
   }
 
   @override
