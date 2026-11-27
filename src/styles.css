@@ -522,3 +522,15 @@ a.back-link, a.text-button { text-decoration: none; cursor: pointer; }
 .cp-card-head { display: flex; align-items: center; justify-content: space-between; color: #20364c; }
 .cp-block .pill-actions { margin-bottom: 14px; }
 @media (max-width: 700px) { .cp-wide { grid-column: span 1; } }
+
+/* Torre de control: origen y frescura del dato (real / simulado / desactualizado / desconectado) */
+.live-pill.sim { border-color: #ecd9a3; background: #fff8e6; color: #7a5a00; } .live-pill.sim i { background: #d99a00; }
+.live-pill.off { border-color: #dfe5ec; background: #f4f6f9; color: #5d6c80; } .live-pill.off i { background: #9aa8ba; }
+.map-vehicle { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 15px; background: var(--vehicle, #1769aa); border: 3px solid #fff; box-shadow: 0 2px 8px rgba(23,42,64,.35); }
+.map-vehicle-simulated { border-style: dashed; border-color: #fff; outline: 2px dashed #d99a00; outline-offset: 1px; }
+.map-vehicle-stale { filter: grayscale(.7); opacity: .75; } .map-vehicle-offline { filter: grayscale(1); opacity: .45; }
+.badge-real, .badge-sim, .badge-stale, .badge-off { display: inline-flex; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.badge-real { background: #e6f6ee; color: #17623f; } .badge-sim { background: #fff4d6; color: #7a5a00; } .badge-stale { background: #eef1f5; color: #4a5a70; } .badge-off { background: #fdecec; color: #8a1f1f; }
+.tower-table { width: 100%; border-collapse: collapse; font-size: 13px; } .tower-table th { text-align: left; color: #708197; font-size: 11px; font-weight: 600; padding: 6px 8px; } .tower-table td { padding: 9px 8px; border-top: 1px solid #e5eaf0; vertical-align: middle; }
+.sim-note { margin: 0 0 10px; padding: 9px 12px; border-radius: 8px; background: #fff8e6; border: 1px solid #ecd9a3; color: #7a5a00; font-size: 12px; }
+.panel-body-pad { padding: 4px 16px 16px; }

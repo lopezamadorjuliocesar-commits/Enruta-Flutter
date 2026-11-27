@@ -1,6 +1,7 @@
 import { isPlatformBrowser } from '@angular/common';
-import { AfterViewInit, ChangeDetectorRef, Component, DoCheck, ElementRef, EventEmitter, Input, NgZone, OnDestroy, Output, PLATFORM_ID, ViewChild, inject } from '@angular/core';
-import { MAPBOX_TOKEN } from './config';
+import { AfterViewInit, ChangeDetectionStrategy, Component, DoCheck, ElementRef, EventEmitter, Input, NgZone, OnDestroy, Output, PLATFORM_ID, ViewChild, inject, signal } from '@angular/core';
+import { timer } from 'rxjs';
+import { NetworkInfo } from './network.service';
 import { EnrutaState } from './enruta-state.service';
 
 let geoNotified = false;
@@ -16,25 +17,32 @@ export interface MapMarker {
   detail?: string;
   status?: string;
   arrival?: string;
+  /** Marcador de vehículo (torre de control): su estilo depende del origen/frescura del dato. */
+  vehicle?: 'REAL' | 'SIMULATED' | 'STALE' | 'OFFLINE';
 }
 export interface MapLine { color: string; coords: number[][]; }
 
 @Component({
   selector: 'app-route-map',
   standalone: true,
-  template: `<div class="route-map-wrap" [style.height.px]="height"><div class="route-map" #host></div>@if (status) { <div class="route-map-status">{{ status }}</div> }</div>`,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<div class="route-map-wrap" [style.height.px]="height"><div class="route-map" #host></div>@if (status()) { <div class="route-map-status">{{ status() }}</div> }</div>`,
 })
 export class RouteMapComponent implements AfterViewInit, DoCheck, OnDestroy {
   @Input() markers: MapMarker[] = [];
   @Input() lines: MapLine[] = [];
   @Input() height = 320;
   @Input() pick = false;
+  /** Solo reencuadra cuando cambian las paradas/líneas, no con cada actualización de posición de un vehículo. */
+  @Input() fitOnce = false;
+  private fitKey = '';
   @Output() picked = new EventEmitter<{ lat: number; lng: number }>();
   @ViewChild('host', { static: true }) host!: ElementRef<HTMLDivElement>;
 
-  status = 'Cargando mapa…';
+  /** Signal: los callbacks de Mapbox (fuera de la zona) escriben aquí y la vista OnPush se repinta sola. */
+  readonly status = signal('Cargando mapa…');
   private readonly zone = inject(NgZone);
-  private readonly changeDetector = inject(ChangeDetectorRef);
+  private readonly network = inject(NetworkInfo);
   private readonly platform = inject(PLATFORM_ID);
   private readonly appState = inject(EnrutaState);
   @Input() locate = true;
@@ -45,10 +53,11 @@ export class RouteMapComponent implements AfterViewInit, DoCheck, OnDestroy {
 
   async ngAfterViewInit(): Promise<void> {
     if (!isPlatformBrowser(this.platform)) return;
+    if (!this.network.state().mapboxToken) { this.status.set('Mapa no disponible: el servidor no entregó un token de Mapbox (MAPBOX_PUBLIC_TOKEN).'); return; }
     try {
       const mod: any = await import('mapbox-gl/dist/mapbox-gl-csp');
       this.gl = mod.default ?? mod;
-      this.gl.accessToken = MAPBOX_TOKEN;
+      this.gl.accessToken = this.network.state().mapboxToken;
       this.gl.workerUrl = new URL('assets/mapbox-gl-csp-worker.js', document.baseURI).toString();
       this.gl.workerCount = 1;
       this.gl.prewarm();
@@ -68,29 +77,22 @@ export class RouteMapComponent implements AfterViewInit, DoCheck, OnDestroy {
           this.map.addLayer({ id: 'lines-casing', type: 'line', source: 'lines', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 9, 'line-opacity': .82 } });
           this.map.addLayer({ id: 'lines', type: 'line', source: 'lines', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': 5, 'line-opacity': .96 } });
           this.loaded = true;
-          this.zone.run(() => {
-            this.status = '';
-            this.changeDetector.markForCheck();
-          });
+          this.status.set('');
           this.map.resize();
           this.draw();
-          if (this.locate && 'geolocation' in navigator) setTimeout(() => this.geolocate?.trigger(), 400);
+          if (this.locate && 'geolocation' in navigator) timer(400).subscribe(() => this.geolocate?.trigger());
         });
         this.map.on('click', (event: any) => {
           if (this.pick) this.zone.run(() => this.picked.emit({ lat: event.lngLat.lat, lng: event.lngLat.lng }));
         });
         this.map.on('error', (event: any) => {
-          if (!this.loaded) this.zone.run(() => {
-            this.status = 'No se pudo cargar el mapa. Revisa tu conexión.';
-            this.changeDetector.markForCheck();
-          });
+          if (!this.loaded) this.status.set('No se pudo cargar el mapa. Revisa tu conexión.');
           console.warn('Mapbox:', event?.error?.message ?? event);
         });
       });
     } catch (error) {
       console.error(error);
-      this.status = 'No se pudo cargar el mapa.';
-      this.changeDetector.markForCheck();
+      this.status.set('No se pudo cargar el mapa.');
     }
   }
 
@@ -112,9 +114,12 @@ export class RouteMapComponent implements AfterViewInit, DoCheck, OnDestroy {
     for (const item of this.markers) {
       const el = document.createElement('div');
       const role = item.role ?? (item.order ? 'stop' : undefined);
-      el.className = role ? `map-stop-marker map-stop-${role}` : 'map-dot';
-      if (!role) el.style.background = item.color || '#1769aa';
-      el.textContent = role === 'start' ? '▶' : role === 'destination' ? '⚑' : item.order ? String(item.order) : '';
+      if (item.vehicle) { el.className = `map-vehicle map-vehicle-${item.vehicle.toLowerCase()}`; el.style.setProperty('--vehicle', item.color || '#1769aa'); el.textContent = '➤'; }
+      else {
+        el.className = role ? `map-stop-marker map-stop-${role}` : 'map-dot';
+        if (!role) el.style.background = item.color || '#1769aa';
+        el.textContent = role === 'start' ? '▶' : role === 'destination' ? '⚑' : item.order ? String(item.order) : '';
+      }
       el.setAttribute('aria-label', this.markerDescription(item));
       el.title = this.markerDescription(item);
       const popupContent = document.createElement('div');
@@ -145,8 +150,9 @@ export class RouteMapComponent implements AfterViewInit, DoCheck, OnDestroy {
     });
     (this.map.getSource('lines') as any)?.setData({ type: 'FeatureCollection', features });
     this.map.getCanvas().style.cursor = this.pick ? 'crosshair' : '';
-    if (count && (!this.pick || !this.fitted)) {
-      this.fitted = true;
+    const key = this.fitOnce ? JSON.stringify([this.markers.map((m) => (m.vehicle ? `v${m.id}` : m.id)), this.lines.length]) : '';
+    if (count && (this.fitOnce ? key !== this.fitKey : (!this.pick || !this.fitted))) {
+      this.fitted = true; this.fitKey = key;
       if (this.markers.length === 1 && !features.length) this.map.easeTo({ center: [this.markers[0].lng, this.markers[0].lat], zoom: Math.max(this.map.getZoom(), 14) });
       else this.map.fitBounds(bounds, { padding: 50, maxZoom: 15, duration: 600 });
     }

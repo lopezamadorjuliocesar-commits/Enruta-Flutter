@@ -1,17 +1,19 @@
 import { CommonModule, NgComponentOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, ErrorHandler, Injectable, Input, Type } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ErrorHandler, Injectable, Input, Type, signal } from '@angular/core';
 import { EnrutaState } from './enruta-state.service';
 
 @Injectable()
 class ScreenFailureState {
-  failed = false;
+  private readonly state = signal(false);
+  /** Signal: la frontera (OnPush) se repinta cuando un error aislado se captura, sin intervención. */
+  get failed(): boolean { return this.state(); }
 
   capture(): void {
-    this.failed = true;
+    this.state.set(true);
   }
 
   reset(): void {
-    this.failed = false;
+    this.state.set(false);
   }
 }
 
@@ -28,7 +30,7 @@ class ScreenErrorHandler implements ErrorHandler {
   selector: 'app-screen-boundary',
   standalone: true,
   imports: [CommonModule, NgComponentOutlet],
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [
     ScreenFailureState,
     {

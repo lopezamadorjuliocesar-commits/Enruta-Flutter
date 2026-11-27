@@ -2,7 +2,7 @@
 // Ejemplo de uso del cliente de idoo.dev.   Ejecutar:  cd backend && node examples/idoo-example.js [RFC] [NOMBRE] [CP]
 // Requiere IDOO_API_KEY en backend/.env (sandbox idoo_sk_test_... = gratis, respuesta simulada).
 try { require('dotenv').config(); } catch {}
-const { createIdooClient, IdooError } = require('../src/clients/idoo.client');
+const { createIdooClient, IdooError } = require('../src/adapters/rfc/idoo.client');
 
 async function main() {
   const [rfc = 'FCA130603EX5', nombre, cp] = process.argv.slice(2);

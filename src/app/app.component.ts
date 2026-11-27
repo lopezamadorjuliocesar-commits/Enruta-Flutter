@@ -1,5 +1,5 @@
 import { ValidateFormDirective } from './core/validate-form.directive';
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
 import { FormsModule } from '@angular/forms';
@@ -8,7 +8,6 @@ import { ScreenBoundaryComponent } from './core/screen-boundary.component';
 import { LoginScreenComponent } from './screens/login-screen.component';
 import { VerifyScreenComponent } from './screens/verify-screen.component';
 import { RecoverScreenComponent } from './screens/recover-screen.component';
-import { ResetScreenComponent } from './screens/reset-screen.component';
 import { RegisterScreenComponent } from './screens/register-screen.component';
 import { PlanScreenComponent } from './screens/plan-screen.component';
 import { SubmittedScreenComponent } from './screens/submitted-screen.component';
@@ -31,6 +30,7 @@ import { ImportScreenComponent } from './screens/import-screen.component';
 import { ProductsScreenComponent } from './screens/products-screen.component';
 import { ClientsScreenComponent } from './screens/clients-screen.component';
 import { PricesScreenComponent } from './screens/prices-screen.component';
+import { InventoryScreenComponent } from './screens/inventory-screen.component';
 import { UsersScreenComponent } from './screens/users-screen.component';
 import { DevicesScreenComponent } from './screens/devices-screen.component';
 import { ProfileScreenComponent } from './screens/profile-screen.component';
@@ -40,6 +40,7 @@ import { ContextScreenComponent } from './screens/context-screen.component';
 @Component({
   selector: 'app-root',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, ScreenBoundaryComponent, ValidateFormDirective, RouterOutlet],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
@@ -49,11 +50,14 @@ export class AppComponent {
   private readonly router = inject(Router);
   /** Ruta activa de recuperación de contraseña ('forgot-password' | 'reset-password') o ''. */
   routedAuth = '';
+  /** `/repartidor/**`: vista móvil a pantalla completa, sin el marco del panel. */
+  readonly driverMode = signal(typeof location !== 'undefined' && location.pathname.startsWith('/repartidor'));
 
   constructor() {
     this.router.events.pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd)).subscribe((e) => {
       const path = e.urlAfterRedirects.split(/[?#]/)[0].replace(/^\/+|\/+$/g, '');
-      this.routedAuth = path === 'forgot-password' || path === 'reset-password' ? path : '';
+      this.driverMode.set(path === 'repartidor' || path.startsWith('repartidor/'));
+      this.routedAuth = path === 'forgot-password' || path === 'reset-password' ? path : path === 'dev/correo' ? 'dev-mailbox' : '';
       if (path === 'login' && !this.state.authenticated) this.state.authView = 'login';
     });
   }
@@ -61,7 +65,6 @@ export class AppComponent {
     login: LoginScreenComponent,
     verify: VerifyScreenComponent,
     recover: RecoverScreenComponent,
-    reset: ResetScreenComponent,
     register: RegisterScreenComponent,
     plan: PlanScreenComponent,
     submitted: SubmittedScreenComponent,
@@ -84,6 +87,7 @@ export class AppComponent {
     products: ProductsScreenComponent,
     clients: ClientsScreenComponent,
     prices: PricesScreenComponent,
+    inventory: InventoryScreenComponent,
     users: UsersScreenComponent,
     devices: DevicesScreenComponent,
     profile: ProfileScreenComponent,

@@ -1,5 +1,5 @@
 import { ValidateFormDirective } from '../core/validate-form.directive';
-import { Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import type { EnrutaState } from '../core/enruta-state.service';
@@ -7,6 +7,7 @@ import type { EnrutaState } from '../core/enruta-state.service';
 @Component({
   selector: 'app-profile-screen',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, DatePipe, ValidateFormDirective],
   templateUrl: './profile-screen.component.html',
 })

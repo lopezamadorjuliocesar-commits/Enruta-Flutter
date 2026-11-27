@@ -7,8 +7,17 @@
     "start:backend": "npm --prefix backend start",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test",
-    "serve:ssr:enruta-app": "node dist/enruta-app/server/server.mjs"
+    "test": "ng test --watch=false",
+    "serve:ssr:enruta-app": "node dist/enruta-app/server/server.mjs",
+    "seed:reset": "npm --prefix backend run seed:reset",
+    "test:backend": "npm --prefix backend test",
+    "e2e:phase1": "node e2e/phase1.smoke.cjs",
+    "migrate": "npm --prefix backend run migrate",
+    "e2e:phase2": "node e2e/phase2.smoke.cjs",
+    "e2e:phase3": "node e2e/phase3.smoke.cjs",
+    "e2e:phase3b": "node e2e/phase3b.smoke.cjs",
+    "verify:phase4": "node scripts/verify-phase4.js",
+    "test:scenarios": "npm --prefix backend run test:scenarios"
   },
   "private": true,
   "dependencies": {

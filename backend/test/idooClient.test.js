@@ -1,7 +1,7 @@
 'use strict';
 // Pruebas del cliente con un fetch inyectado (sin red).
 const test = require('node:test'); const assert = require('node:assert');
-const { createIdooClient, IdooError } = require('../src/clients/idoo.client');
+const { createIdooClient, IdooError } = require('../src/adapters/rfc/idoo.client');
 
 const res = (status, body, headers = {}) => ({ status, headers: { get: (h) => headers[h.toLowerCase()] ?? null }, json: async () => body });
 function make(responses, extra = {}) {

@@ -8,7 +8,7 @@ import type { EnrutaState } from '../core/enruta-state.service';
   selector: 'app-planner-screen',
   standalone: true,
   imports: [FormsModule, RouteMapComponent, DecimalPipe],
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './planner-screen.component.html',
 })
 export class PlannerScreenComponent {

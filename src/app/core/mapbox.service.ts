@@ -1,5 +1,5 @@
-import { Injectable } from '@angular/core';
-import { MAPBOX_TOKEN } from './config';
+import { Injectable, inject } from '@angular/core';
+import { NetworkInfo } from './network.service';
 
 export interface GeoResult { lat: number; lng: number; place: string; }
 export interface DirectionsResult { distanceKm: number; durationMin: number; geometry: number[][]; estimated: boolean; }
@@ -7,12 +7,15 @@ export interface DirectionsResult { distanceKm: number; durationMin: number; geo
 @Injectable({ providedIn: 'root' })
 export class MapboxService {
   private readonly base = 'https://api.mapbox.com';
+  private readonly net = inject(NetworkInfo);
+  /** Token público entregado por el backend (GET /api/system/client-config). */
+  get token(): string { return this.net.state().mapboxToken; }
 
   async geocode(query: string): Promise<GeoResult | null> {
     const q = query.trim();
     if (!q) return null;
     try {
-      const res = await fetch(`${this.base}/search/geocode/v6/forward?q=${encodeURIComponent(q)}&limit=1&country=mx&language=es&access_token=${MAPBOX_TOKEN}`);
+      const res = await fetch(`${this.base}/search/geocode/v6/forward?q=${encodeURIComponent(q)}&limit=1&country=mx&language=es&access_token=${this.token}`);
       if (!res.ok) return null;
       const data = await res.json();
       const feature = data.features?.[0];
@@ -24,7 +27,7 @@ export class MapboxService {
 
   async reverse(lat: number, lng: number): Promise<string> {
     try {
-      const res = await fetch(`${this.base}/search/geocode/v6/reverse?longitude=${lng}&latitude=${lat}&language=es&access_token=${MAPBOX_TOKEN}`);
+      const res = await fetch(`${this.base}/search/geocode/v6/reverse?longitude=${lng}&latitude=${lat}&language=es&access_token=${this.token}`);
       if (!res.ok) return '';
       const data = await res.json();
       return data.features?.[0]?.properties?.full_address ?? '';
@@ -39,7 +42,7 @@ export class MapboxService {
         const chunk = points.slice(start, start + 25);
         if (chunk.length < 2) break;
         const coords = chunk.map((p) => `${p.lng},${p.lat}`).join(';');
-        const res = await fetch(`${this.base}/directions/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`);
+        const res = await fetch(`${this.base}/directions/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&access_token=${this.token}`);
         if (!res.ok) throw new Error('directions');
         const data = await res.json();
         const route = data.routes?.[0];
@@ -64,7 +67,7 @@ export class MapboxService {
     if (points.length <= 12) {
       try {
         const coords = points.map((p) => `${p.lng},${p.lat}`).join(';');
-        const res = await fetch(`${this.base}/optimized-trips/v1/mapbox/driving/${coords}?source=first&destination=any&roundtrip=false&access_token=${MAPBOX_TOKEN}`);
+        const res = await fetch(`${this.base}/optimized-trips/v1/mapbox/driving/${coords}?source=first&destination=any&roundtrip=false&access_token=${this.token}`);
         if (res.ok) {
           const data = await res.json();
           if (data.code === 'Ok' && Array.isArray(data.waypoints)) {

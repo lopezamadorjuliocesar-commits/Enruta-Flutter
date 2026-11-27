@@ -1,6 +1,8 @@
 import { CurrencyPipe, DatePipe } from '@angular/common';
-import { Component, Input, OnDestroy, OnInit, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, OnDestroy, OnInit, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Subscription, timer } from 'rxjs';
+import { makeReactive } from '../core/reactive';
 import { ApiService, CartaPorteFiscalDocument } from '../core/api.service';
 import type { EnrutaState } from '../core/enruta-state.service';
 import {
@@ -11,16 +13,20 @@ import {
 @Component({
   selector: 'app-cartaporte-screen',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, CurrencyPipe, DatePipe],
   templateUrl: './cartaporte-screen.component.html',
 })
 export class CartaPorteScreenComponent implements OnInit, OnDestroy {
   @Input({ required: true }) app!: EnrutaState;
   private readonly api = inject(ApiService);
-  private readonly fiscalPolls = new Map<number, ReturnType<typeof setTimeout>>();
+  private readonly fiscalPolls = new Map<number, Subscription>();
   readonly cat = CP_CATALOGS;
   d: CartaPorteData = emptyCartaPorte();
   showErrors = false; routeId = ''; productId = ''; busy = false; fiscalBusyId: number | null = null;
+
+  // Estado que cambia tras un `await` o un temporizador: signals (la vista es OnPush).
+  constructor() { makeReactive(this, ['d', 'showErrors', 'routeId', 'productId', 'busy', 'fiscalBusyId']); }
 
   ngOnInit(): void {
     this.reset();
@@ -76,13 +82,13 @@ export class CartaPorteScreenComponent implements OnInit, OnDestroy {
 
   private saveBlob(name: string, data: BlobPart, type: string): void {
     const url = URL.createObjectURL(new Blob([data], { type }));
-    const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+    const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); timer(2000).subscribe(() => URL.revokeObjectURL(url));
   }
 
   fileName(r: CartaPorteRecord, ext: string): string { return `carta-porte-${r.data.serie}${r.folio}.${ext}`; }
   downloadXml(r: CartaPorteRecord): void { this.saveBlob(this.fileName(r, 'xml'), r.xml, 'application/xml;charset=utf-8'); }
   downloadPdf(r: CartaPorteRecord): void { this.saveBlob(this.fileName(r, 'pdf'), buildCartaPortePdf(r.data, r.idCcp, r.folio, new Date(r.fecha)) as BlobPart, 'application/pdf'); }
-  downloadBoth(r: CartaPorteRecord): void { this.downloadPdf(r); setTimeout(() => this.downloadXml(r), 600); }
+  downloadBoth(r: CartaPorteRecord): void { this.downloadPdf(r); timer(600).subscribe(() => this.downloadXml(r)); }
   remove(r: CartaPorteRecord): void {
     if (typeof window !== 'undefined' && !window.confirm(`¿Eliminar ${r.data.serie}${r.folio} del historial?`)) return;
     this.app.cartasPorte = this.app.cartasPorte.filter((x) => x.id !== r.id); this.app.addAuditEvent(`Eliminó la Carta Porte ${r.data.serie}${r.folio}`);
@@ -160,16 +166,14 @@ export class CartaPorteScreenComponent implements OnInit, OnDestroy {
 
   private scheduleFiscalPoll(localId: number): void {
     if (this.fiscalPolls.has(localId)) return;
-    const timer = setTimeout(() => {
+    this.fiscalPolls.set(localId, timer(2500).subscribe(() => {
       this.fiscalPolls.delete(localId);
       void this.refreshFiscalStatus(localId);
-    }, 2500);
-    this.fiscalPolls.set(localId, timer);
+    }));
   }
 
   private stopFiscalPoll(localId: number): void {
-    const timer = this.fiscalPolls.get(localId);
-    if (timer) clearTimeout(timer);
+    this.fiscalPolls.get(localId)?.unsubscribe();
     this.fiscalPolls.delete(localId);
   }
 

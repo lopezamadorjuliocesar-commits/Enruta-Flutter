@@ -1,3 +1,5 @@
+> **Documento histórico.** La recuperación de contraseña ya no usa JWT en memoria ni cuentas en `localStorage`: el token es de un solo uso, vive en la base de datos y el correo local se consulta en `/dev/correo`. Ver `README_LOCAL.md` §4.
+
 # Restablecimiento de contraseña (JWT + Nodemailer, sin base de datos)
 
 ## Flujo

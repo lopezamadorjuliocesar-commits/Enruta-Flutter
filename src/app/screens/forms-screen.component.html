@@ -1,4 +1,5 @@
 <div class="page-heading"><div><span class="eyebrow">CONFIGURACIÓN</span><h1>Editor de formularios</h1><p>Diseña los datos que el equipo captura en cada visita, entrega y cobro.</p></div><div class="heading-actions">@if (app.formDirty) { <span class="badge-muted">Cambios sin guardar</span> }<button class="primary-button" type="button" (click)="app.saveForm()">Guardar</button></div></div>
+@if (!app.configReady) { <p class="hint-line" role="status" data-testid="config-loading">Cargando configuración…</p> } @else {
 <div class="settings-tabs">@for (k of ['entrega', 'cobro', 'visita']; track k) { <button class="tab" [class.active]="app.activeForm === k" type="button" (click)="app.setActiveForm($any(k))">{{ app.formLabels[k] }}</button> }</div>
 <div class="two-column form-editor"><section class="panel"><div class="panel-heading"><div><h2>Formulario de {{ app.formLabels[app.activeForm].toLowerCase() }}</h2><p>Selecciona un campo para editar sus propiedades.</p></div><button class="text-button" type="button" (click)="preview = !preview">{{ preview ? 'Ocultar vista previa' : 'Vista previa ↗' }}</button></div>
   @if (preview) { <div class="form-preview">@for (f of app.currentFields; track f.id) { @if (f.visible !== false) { <label>{{ f.label }}@if (f.required) { <span class="req"> *</span> }
@@ -21,3 +22,4 @@
   </div> }
   @else { <div class="empty-state compact-empty"><span class="empty-icon">⌑</span><strong>Selecciona un campo</strong><p>Haz clic en un campo para editar sus propiedades.</p></div> }
   <div class="hint-box">Si un campo es obligatorio, la parada no podrá cerrarse sin completarlo. Pulsa Guardar para conservar los cambios.</div></aside></div>
+}

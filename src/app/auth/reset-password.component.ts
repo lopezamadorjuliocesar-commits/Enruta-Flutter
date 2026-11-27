@@ -1,10 +1,10 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthService } from '../core/auth.service';
 import { EnrutaState } from '../core/enruta-state.service';
 
-type View = 'checking' | 'form' | 'invalid' | 'unavailable' | 'noAccount';
+type View = 'checking' | 'form' | 'invalid' | 'unavailable';
 
 const passwordsMatch = (group: AbstractControl): ValidationErrors | null => {
   const a = group.get('newPassword')?.value; const b = group.get('confirmPassword')?.value;
@@ -24,14 +24,15 @@ export class ResetPasswordComponent implements OnInit {
   private readonly state = inject(EnrutaState);
   private readonly fb = inject(FormBuilder);
 
-  view: View = 'checking';
-  invalidReason = '';
-  email = '';
+  // Estado asíncrono en signals: Angular 22 usa OnPush por defecto, así que una mutación simple tras un `await` no repinta la vista.
+  readonly view = signal<View>('checking');
+  readonly invalidReason = signal('');
+  readonly email = signal('');
   token = '';
-  loading = false;
-  errorMessage = '';
-  showNew = false;
-  showConfirm = false;
+  readonly loading = signal(false);
+  readonly errorMessage = signal('');
+  readonly showNew = signal(false);
+  readonly showConfirm = signal(false);
 
   readonly form = this.fb.nonNullable.group({
     newPassword: ['', [Validators.required, Validators.minLength(12), Validators.pattern(/^(?=.*[A-Z])(?=.*[0-9]).+$/)]],
@@ -50,40 +51,35 @@ export class ResetPasswordComponent implements OnInit {
   }
 
   async checkToken(): Promise<void> {
-    this.view = 'checking';
+    this.view.set('checking');
     const result = await this.auth.validateResetToken(this.token);
-    if (result.status === 'valid') {
-      this.email = result.email;
-      // Las cuentas de EnRuta residen en este navegador: sin cuenta local no hay nada que actualizar.
-      this.view = this.state.hasAccount(result.email) ? 'form' : 'noAccount';
-    } else if (result.status === 'invalid') {
-      this.invalidReason = result.reason; this.view = 'invalid';
-    } else this.view = 'unavailable';
+    if (result.status === 'valid') { this.email.set(result.email); this.view.set('form'); }
+    else if (result.status === 'invalid') { this.invalidReason.set(result.reason); this.view.set('invalid'); }
+    else this.view.set('unavailable');
   }
 
   get invalidMessage(): string {
-    return this.invalidReason === 'EXPIRED' ? 'El enlace expiró. Los enlaces son válidos por 15 minutos.'
-      : this.invalidReason === 'USED' ? 'Este enlace ya fue utilizado.'
+    const reason = this.invalidReason();
+    return reason === 'EXPIRED' ? 'El enlace expiró. Los enlaces son válidos por 15 minutos.'
+      : reason === 'USED' ? 'Este enlace ya fue utilizado.'
       : 'El enlace no es válido.';
   }
 
   async submit(): Promise<void> {
-    if (this.loading) return;
-    this.errorMessage = '';
+    if (this.loading()) return;
+    this.errorMessage.set('');
     if (this.form.invalid) { this.form.markAllAsTouched(); return; }
-    this.loading = true;
+    this.loading.set(true);
     const { newPassword } = this.form.getRawValue();
     const result = await this.auth.resetPassword(this.token, newPassword);
+    this.loading.set(false);
     if (result.status === 'ok') {
-      const applied = await this.state.applyPasswordReset(result.email, newPassword);
-      this.loading = false;
-      if (!applied) { this.invalidReason = 'INVALID'; this.view = 'noAccount'; return; }
-      this.state.announce('Contraseña restablecida con éxito');
+      // El backend ya cambió la contraseña y cerró todas las sesiones de la cuenta.
+      this.state.announce('Contraseña restablecida con éxito. Inicia sesión con la nueva contraseña.');
       await this.router.navigateByUrl('/login');
       return;
     }
-    this.loading = false;
-    if (result.status === 'invalid') { this.invalidReason = result.reason; this.view = 'invalid'; }
-    else this.errorMessage = result.message;
+    if (result.status === 'invalid') { this.invalidReason.set(result.reason); this.view.set('invalid'); }
+    else this.errorMessage.set(result.message);
   }
 }

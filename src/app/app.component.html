@@ -1,3 +1,5 @@
+@if (driverMode()) { <router-outlet /> } @else {
+@if (state.network.backendDown()) { <div class="toast-message toast-error" role="alert" style="position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:50"><p>No se pudo conectar con el servidor EnRuta. Inicia el backend (<code>npm run start:backend</code>) y recarga la página.</p></div> }
 @if (!state.authenticated || routedAuth) {
   <div class="auth-shell">
     <aside class="auth-brand">
@@ -10,7 +12,7 @@
             @case ('reset-password') { Crea una contraseña nueva }
             @case ('verify') { Una capa más de seguridad }
             @case ('recover') { ¿Olvidaste tu contraseña? }
-            @case ('reset') { Crea una contraseña nueva }
+            @case ('dev-mailbox') { Correo local de desarrollo }
             @case ('register') { Empieza con EnRuta }
             @case ('plan') { Elige cómo quieres operar }
             @case ('submitted') { Solicitud enviada }
@@ -36,7 +38,6 @@
           @case ('login') {<app-screen-boundary [screen]="screens.login" [app]="state" />}
           @case ('verify') {<app-screen-boundary [screen]="screens.verify" [app]="state" />}
           @case ('recover') {<app-screen-boundary [screen]="screens.recover" [app]="state" />}
-          @case ('reset') {<app-screen-boundary [screen]="screens.reset" [app]="state" />}
           @case ('register') {<app-screen-boundary [screen]="screens.register" [app]="state" />}
           @case ('plan') {<app-screen-boundary [screen]="screens.plan" [app]="state" />}
           @case ('submitted') {<app-screen-boundary [screen]="screens.submitted" [app]="state" />}
@@ -99,6 +100,7 @@
           @case ('products') {<app-screen-boundary [screen]="screens.products" [app]="state" />}
           @case ('clients') {<app-screen-boundary [screen]="screens.clients" [app]="state" />}
           @case ('prices') {<app-screen-boundary [screen]="screens.prices" [app]="state" />}
+          @case ('inventory') {<app-screen-boundary [screen]="screens.inventory" [app]="state" />}
           @case ('users') {<app-screen-boundary [screen]="screens.users" [app]="state" />}
           @case ('devices') {<app-screen-boundary [screen]="screens.devices" [app]="state" />}
           @case ('profile') {<app-screen-boundary [screen]="screens.profile" [app]="state" />}
@@ -115,11 +117,11 @@
     <section class="modal-card" role="dialog" aria-modal="true" [attr.aria-label]="state.kindLabel(state.modalKind)" (click)="$event.stopPropagation()">
       <button class="modal-close" type="button" aria-label="Cerrar" (click)="state.closeModal()">×</button><span class="eyebrow">{{ state.editingId !== null ? 'EDITAR REGISTRO' : 'NUEVO REGISTRO' }}</span><h2>{{ state.editingId !== null ? 'Editar' : 'Crear' }} {{ state.kindLabel(state.modalKind).toLowerCase() }}</h2><p>Completa la información. Podrás modificarla cuando quieras.</p>
       <form (ngSubmit)="state.saveRecord()">
-        @if (state.modalKind !== 'liquidacion') { <label>{{ state.modalKind === 'usuario' ? 'Nombre completo' : 'Nombre' }}<input name="draftName" [(ngModel)]="state.draftName" placeholder="Escribe un nombre" required></label> }
+        @if (true) { <label>{{ state.modalKind === 'usuario' ? 'Nombre completo' : 'Nombre' }}<input name="draftName" [(ngModel)]="state.draftName" placeholder="Escribe un nombre" required></label> }
         @switch (state.modalKind) {
           @case ('ruta') {
             <div class="form-two"><label>Operador<select name="draftOperator" [(ngModel)]="state.draftOperator"><option value="">Sin asignar</option>@for (u of state.users; track u.id) { <option [value]="u.id">{{ u.name }}</option> }</select></label><label>Día de operación<select name="draftDay" [(ngModel)]="state.draftDay">@for (d of state.days; track d) { <option>{{ d }}</option> }</select></label></div>
-            <div class="form-two"><label>Estado<select name="draftStatus" [(ngModel)]="state.draftStatus"><option>Borrador</option><option>Publicada</option><option>Inactiva</option></select></label><label>Color en el mapa<input name="draftColor" type="color" [(ngModel)]="state.draftColor"></label></div>
+            <div class="form-two"><label>Color en el mapa<input name="draftColor" type="color" [(ngModel)]="state.draftColor"></label><p class="hint-line">El estado de la ruta lo controla el flujo de aprobación (Borrador → Pendiente → Publicada → En ejecución). Editar una ruta pendiente o publicada invalida su aprobación.</p></div>
           }
           @case ('cliente') {
             <label>Dirección<input name="draftDetail" [(ngModel)]="state.draftDetail" placeholder="Calle, número, colonia, ciudad"></label>
@@ -137,10 +139,6 @@
             <label>Correo electrónico<input name="draftEmail" type="email" [(ngModel)]="state.draftEmail" placeholder="nombre@empresa.com" required></label>
             <div class="form-two"><label>Rol<select name="draftRole" [(ngModel)]="state.draftRole">@for (r of state.roles; track r) { <option>{{ r }}</option> }</select></label><label>Estado<select name="draftStatus" [(ngModel)]="state.draftStatus"><option>Activo</option><option>Inactivo</option></select></label></div>
             @if (state.editingId === null) { <label>Contraseña temporal<input name="draftPassword" type="password" [(ngModel)]="state.draftPassword" placeholder="12+ caracteres, mayúscula y número" autocomplete="new-password" required></label> }
-          }
-          @case ('liquidacion') {
-            <div class="form-two"><label>Ruta<select name="draftOperator" [(ngModel)]="state.draftOperator" required><option value="">Selecciona</option>@for (r of state.routes; track r.id) { <option [value]="r.id">{{ r.name }}</option> }</select></label><label>Fecha<input name="draftDate" type="date" [(ngModel)]="state.draftDate"></label></div>
-            <div class="form-two"><label>Efectivo cobrado (MXN)<input name="draftPrice" type="number" min="0" step="0.01" [(ngModel)]="state.draftPrice" required></label><label>Efectivo depositado (MXN)<input name="draftDeposit" type="number" min="0" step="0.01" [(ngModel)]="state.draftDeposit" required></label></div>
           }
           @default {
             <label>{{ state.modalKind === 'dispositivo' ? 'Modelo y versión de la app' : 'Detalle opcional' }}<input name="draftDetail" [(ngModel)]="state.draftDetail" placeholder="Opcional"></label>
@@ -172,3 +170,4 @@
 }
 
 @if (state.toast) { <div class="toast-message" [class.toast-error]="state.toastKind === 'error'" [attr.role]="state.toastKind === 'error' ? 'alert' : 'status'"><span class="toast-icon">@if (state.toastKind === 'error') { <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg> } @else { ✓ }</span><p>{{ state.toast }}</p><button type="button" aria-label="Cerrar aviso" (click)="state.toast = ''">×</button></div> }
+}

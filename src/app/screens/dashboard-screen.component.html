@@ -1,4 +1,4 @@
-<div class="page-heading"><div><span class="eyebrow">OPERACIÓN</span><h1>Torre de control</h1><p>Resumen de la operación de reparto{{ app.centerName ? ' · ' + app.centerName : '' }}.</p></div><div class="heading-actions"><span class="live-pill"><i></i> En vivo</span><button class="secondary-button" type="button" (click)="app.navigate('context')">Seleccionar centro</button></div></div>
+<div class="page-heading"><div><span class="eyebrow">OPERACIÓN</span><h1>Torre de control</h1><p>Resumen de la operación de reparto{{ app.centerName ? ' · ' + app.centerName : '' }}.</p></div><div class="heading-actions">@if (canTrack()) { @switch (tracking.liveState()) { @case ('LIVE') { <span class="live-pill" data-testid="live-pill"><i></i> En vivo · {{ tracking.realCount() }} {{ tracking.realCount() === 1 ? 'vehículo' : 'vehículos' }}</span> } @case ('SIMULATED') { <span class="live-pill sim" data-testid="live-pill"><i></i> Simulación activa · sin GPS real</span> } @default { <span class="live-pill off" data-testid="live-pill"><i></i> Sin datos en vivo</span> } } }<button class="secondary-button" type="button" (click)="app.navigate('context')">Seleccionar centro</button></div></div>
 <div class="metric-grid">
   <article class="metric-card"><span>Rutas publicadas</span><strong>{{ app.routeStatusCounts.published }}</strong><small>{{ app.routes.length }} rutas en total</small><span class="metric-icon blue">↗</span></article>
   <article class="metric-card"><span>Paradas planeadas</span><strong>{{ app.totalStops }}</strong><small>{{ app.clients.length }} clientes registrados</small><span class="metric-icon green">◷</span></article>
@@ -6,8 +6,17 @@
   <article class="metric-card"><span>Clientes sin ubicar</span><strong>{{ app.clientsWithoutLocation }}</strong><small>{{ app.products.length }} productos en catálogo</small><span class="metric-icon orange">⌖</span></article>
 </div>
 <div class="dashboard-grid">
-  <section class="panel map-panel"><div class="panel-heading"><div><h2>Seguimiento de rutas</h2><p>Recorrido planeado de cada ruta activa.</p></div><button class="text-button" type="button" (click)="app.navigate('routes')">Ver rutas →</button></div>
-    <div class="map-holder"><app-route-map [markers]="app.overviewMarkers" [lines]="app.overviewLines" [height]="340" /></div>
+  <section class="panel map-panel"><div class="panel-heading"><div><h2>Seguimiento de rutas</h2><p>Recorrido planeado y vehículos en ruta (real, simulado o sin señal).</p></div><button class="text-button" type="button" (click)="app.navigate('routes')">Ver rutas →</button></div>
+    <div class="map-holder"><app-route-map [markers]="app.overviewMarkers.concat($any(vehicleMarkers()))" [lines]="app.overviewLines" [height]="340" [fitOnce]="true" /></div>
+    @if (canTrack()) { <div class="panel-body-pad" data-testid="tower">
+      @if (tracking.simulationsRunning().length) { <p class="sim-note" role="note">Hay simulaciones activas: los vehículos marcados como «Ubicación simulada» NO son GPS real.</p> }
+      @if (tracking.error()) { <p class="sim-note" role="alert">{{ tracking.error() }}</p> }
+      @if (simError()) { <p class="sim-note" role="alert">{{ simError() }}</p> }
+      @if (tracking.vehicles().length) { <table class="tower-table"><thead><tr><th>Ruta</th><th>Operador</th><th>Estado</th><th>Último dato</th>@if (canSimulate()) { <th></th> }</tr></thead><tbody>
+        @for (v of tracking.vehicles(); track v.routeId) { <tr [attr.data-vehicle]="v.routeName"><td><strong>{{ v.routeName }}</strong></td><td>{{ v.operatorName || '—' }}</td><td><span [class]="badgeClass(v)">{{ badgeText(v) }}</span></td><td>{{ v.ageSeconds === null ? 'Sin posiciones' : 'hace ' + age(v.ageSeconds) }}</td>
+          @if (canSimulate()) { <td><button class="secondary-button" type="button" [disabled]="simBusy() === v.routeId" (click)="toggleSimulation(v)">{{ tracking.isSimulating(v.routeId) ? 'Detener simulación' : 'Simular recorrido' }}</button></td> }</tr> }</tbody></table> }
+      @else { <p class="hint-line">No hay rutas en ejecución. Cuando un repartidor inicie su ruta, aparecerá aquí con su ubicación real.</p> }
+    </div> }
     @if (app.routes.length) { <div class="map-legend">@for (route of app.routes; track route.id) { <button type="button" (click)="app.openRoute(route)"><i [style.background]="route.color"></i>{{ route.name }}</button> }</div> }
     @else { <p class="hint-line map-hint">Aún no hay rutas. <button class="text-button" type="button" (click)="app.openCreate('ruta')">Crear primera ruta</button></p> }
   </section>

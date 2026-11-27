@@ -7,7 +7,7 @@ import type { EnrutaState } from '../core/enruta-state.service';
   selector: 'app-products-screen',
   standalone: true,
   imports: [FormsModule, CurrencyPipe],
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './products-screen.component.html',
 })
 export class ProductsScreenComponent {

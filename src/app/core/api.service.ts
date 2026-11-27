@@ -1,6 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { API_KEY, API_URL } from './config';
-import { EnrutaState } from './enruta-state.service';
+import { ApiClient } from './http/api-client';
 
 export interface ApiDriver { id: string; name: string; email: string | null; phone: string | null; }
 export interface ApiVehicle { id: string; plate: string; description: string | null; }
@@ -10,7 +9,7 @@ export interface ApiDevice {
   driver_id: string | null; vehicle_id: string | null; status: DeviceStatus; driver_name: string | null; vehicle_plate: string | null;
   fcm_token: string | null; reported_model: string | null; reported_os: string | null; linked_at: string | null; created_at: string;
 }
-export interface LinkToken { token: string; jti: string; expiresAt: string; ttlSeconds: number; }
+export interface LinkToken { token: string; jti: string; expiresAt: string; ttlSeconds: number; apiUrl?: string; linkUrl?: string; }
 
 export type CartaPorteFiscalStatus = 'EnCola' | 'Procesando' | 'Timbrado' | 'Simulado' | 'Error';
 export interface CartaPorteFiscalDocument {
@@ -22,30 +21,23 @@ export interface CartaPorteFiscalDocument {
   pac_uuid: string | null;
   pac_stamped_at: string | null;
   error_message: string | null;
+  simulated?: boolean;
   created_at: string;
   updated_at: string;
 }
 
-export class ApiError extends Error { constructor(message: string, readonly status: number) { super(message); } }
+export { ApiError } from './http/api-client';
 
+/** Cliente de dispositivos, conductores, vehículos y Carta Porte. La empresa sale de la sesión: ya no se envía ninguna llave ni `x-company`. */
 @Injectable({ providedIn: 'root' })
 export class ApiService {
-  private readonly state = inject(EnrutaState);
-
-  private get company(): string { return (this.state.account?.company ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-'); }
-
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    let response: Response;
-    try {
-      response = await fetch(`${API_URL}${path}`, {
-        method, headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY, 'x-company': this.company },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-    } catch { throw new ApiError(`No se pudo conectar con el servidor (${API_URL}). Inicia el backend con “docker compose up”.`, 0); }
-    if (response.status === 204) return undefined as T;
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new ApiError((data as { error?: string }).error ?? `Error ${response.status}`, response.status);
-    return data as T;
+  private readonly api = inject(ApiClient);
+  private request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const p = path.replace(/^\/api/, '');
+    switch (method) {
+      case 'GET': return this.api.get<T>(p); case 'POST': return this.api.post<T>(p, body ?? {}); case 'PUT': return this.api.put<T>(p, body ?? {});
+      default: return this.api.delete<T>(p);
+    }
   }
 
   drivers(): Promise<ApiDriver[]> { return this.request('GET', '/api/drivers'); }
@@ -60,6 +52,7 @@ export class ApiService {
   linkQrStatus(jti: string): Promise<{ status: 'pending' | 'linked' | 'expired'; device?: ApiDevice | null }> { return this.request('GET', `/api/devices/link-qr/${jti}`); }
   updateDevice(id: string, d: Partial<ApiDevice>): Promise<ApiDevice> { return this.request('PUT', `/api/devices/${id}`, d); }
   deleteDevice(id: string): Promise<void> { return this.request('DELETE', `/api/devices/${id}`); }
+  revokeDevice(id: string): Promise<{ id: string; alias: string; revoked: number }> { return this.request('POST', `/api/devices/${id}/revoke`); }
   linkToken(id: string): Promise<LinkToken> { return this.request('POST', `/api/devices/${id}/link-token`); }
 
   submitCartaPorte(folio: string, idCcp: string, data: unknown, xml: string): Promise<{ document: CartaPorteFiscalDocument; queued: boolean }> {
